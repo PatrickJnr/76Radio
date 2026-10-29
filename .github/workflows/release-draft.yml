@@ -1,0 +1,36 @@
+name: Release draft
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Extract changelog
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Tag $tag is not a version tag such as v0.1.0."
+          }
+          $version = $tag.Substring(1)
+          $notes = & pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/changelog.ps1 -Version $version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not read the $version section from CHANGELOG.md."
+          }
+          $notes | Set-Content -LiteralPath release-notes.md -Encoding utf8
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          gh release create $env:GITHUB_REF_NAME --draft --verify-tag --title "76Radio $version" --notes-file release-notes.md

@@ -1,0 +1,25 @@
+name: Native build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/ci -A x64
+      - name: Build
+        run: cmake --build build/ci --config Release
+      - name: Test
+        run: ctest --test-dir build/ci -C Release --output-on-failure
+      - name: Test archive list editing
+        run: powershell -ExecutionPolicy Bypass -File tests/ini-tests.ps1

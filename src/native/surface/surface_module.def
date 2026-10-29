@@ -1,0 +1,19 @@
+LIBRARY version
+EXPORTS
+    GetFileVersionInfoA=R76GetFileVersionInfoA
+    GetFileVersionInfoByHandle=R76GetFileVersionInfoByHandle
+    GetFileVersionInfoExA=R76GetFileVersionInfoExA
+    GetFileVersionInfoExW=R76GetFileVersionInfoExW
+    GetFileVersionInfoSizeA=R76GetFileVersionInfoSizeA
+    GetFileVersionInfoSizeExA=R76GetFileVersionInfoSizeExA
+    GetFileVersionInfoSizeExW=R76GetFileVersionInfoSizeExW
+    GetFileVersionInfoSizeW=R76GetFileVersionInfoSizeW
+    GetFileVersionInfoW=R76GetFileVersionInfoW
+    VerFindFileA=R76VerFindFileA
+    VerFindFileW=R76VerFindFileW
+    VerInstallFileA=R76VerInstallFileA
+    VerInstallFileW=R76VerInstallFileW
+    VerLanguageNameA=R76VerLanguageNameA
+    VerLanguageNameW=R76VerLanguageNameW
+    VerQueryValueA=R76VerQueryValueA
+    VerQueryValueW=R76VerQueryValueW

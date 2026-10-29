@@ -1,0 +1,84 @@
+{
+  "stations": [
+    {
+      "name": "Fallout.FM - Main Station",
+      "streamurl": "https://fallout.fm:8444/falloutfm1.ogg"
+    },
+    {
+      "name": "Fallout 3 - Galaxy News Radio",
+      "streamurl": "https://fallout.fm:8444/falloutfm2.ogg"
+    },
+    {
+      "name": "Fallout New Vegas - Radio New Vegas",
+      "streamurl": "https://fallout.fm:8444/falloutfm3.ogg"
+    },
+    {
+      "name": "Fallout 2 - Original Soundtrack",
+      "streamurl": "https://fallout.fm:8444/falloutfm4.ogg"
+    },
+    {
+      "name": "Fallout 1 - Original Soundtrack",
+      "streamurl": "https://fallout.fm:8444/falloutfm5.ogg"
+    },
+    {
+      "name": "Fallout 4 - Diamond City Radio",
+      "streamurl": "https://fallout.fm:8444/falloutfm6.ogg"
+    },
+    {
+      "name": "Fallout 4 - Classical Radio",
+      "streamurl": "https://fallout.fm:8444/falloutfm7.ogg"
+    },
+    {
+      "name": "Fallout 4 - MWTCF",
+      "streamurl": "https://fallout.fm:8444/falloutfm8.ogg"
+    },
+    {
+      "name": "Megaton Cafe Radio",
+      "streamurl": "https://us2.internet-radio.com/proxy/megatoncafe?mp=/stream"
+    },
+    {
+      "name": "M4D Radio - 1940s",
+      "streamurl": "https://s2.radio.co/sf0e4f0fe8/listen"
+    },
+    {
+      "name": "KCEA - Big Band and Swing",
+      "streamurl": "https://cloudstream.rubinbroadcasting.com/kcea"
+    },
+    {
+      "name": "Jazz Club Bandstand",
+      "streamurl": "https://cast1.torontocast.com:2060/"
+    },
+    {
+      "name": "Goodnight Sweetheart Radio",
+      "streamurl": "https://a3.asurahosting.com/listen/goodnight_sweetheart_radio/radio.mp3"
+    },
+    {
+      "name": "1940s Home Service Radio",
+      "streamurl": "https://cast2.asurahosting.com/proxy/1940sradio/stream"
+    },
+    {
+      "name": "Swing Street Radio",
+      "streamurl": "https://s1.voscast.com:10413/stream"
+    },
+    {
+      "name": "ROKiT - 1940s Radio",
+      "streamurl": "https://streaming06.liveboxstream.uk/proxy/roksta13/stream"
+    },
+    {
+      "name": "ROKiT - Jazz Central",
+      "streamurl": "http://streaming06.liveboxstream.uk:8027/stream"
+    },
+    {
+      "name": "ROKiT - Science Fiction",
+      "streamurl": "http://streaming05.liveboxstream.uk:8110/stream"
+    },
+    {
+      "name": "Radio Dismuke - Vintage Jazz",
+      "streamurl": "http://stream1.radiodismuke.com:8078/;stream.mp3"
+    },
+    {
+      "name": "Golden Years Radio",
+      "streamurl": "https://radio1.streamserver.link/radio/8060/gyr-aac"
+    }
+  ]
+}
