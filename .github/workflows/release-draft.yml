@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to compose from CHANGELOG.md'
+        required: true
+        default: '0.1.0'
+        type: string
 
 permissions:
   contents: write
@@ -16,12 +23,21 @@ jobs:
         uses: actions/checkout@v7
       - name: Compose release notes
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          $tag = $env:GITHUB_REF_NAME
-          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
-            throw "Tag $tag is not a version tag such as v0.1.0."
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $version = $env:INPUT_VERSION
+            if ($version -notmatch '^\d+\.\d+\.\d+$') {
+              throw "Version $version is not a version number such as 0.1.0."
+            }
+          } else {
+            $tag = $env:GITHUB_REF_NAME
+            if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+              throw "Tag $tag is not a version tag such as v0.1.0."
+            }
+            $version = $tag.Substring(1)
           }
-          $version = $tag.Substring(1)
           $notes = & pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/changelog.ps1 -Version $version
           if ($LASTEXITCODE -ne 0) {
             throw "Could not read the $version section from CHANGELOG.md."
@@ -36,7 +52,12 @@ jobs:
           }
           $body = $template.Replace('{{CHANGELOG}}', ($notes -join "`n").Trim())
           $body | Set-Content -LiteralPath release-notes.md -Encoding utf8
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
+            $body | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host $body
+          }
       - name: Create draft release
+        if: github.event_name == 'push'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
