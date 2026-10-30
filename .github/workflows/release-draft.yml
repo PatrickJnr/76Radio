@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
-      - name: Extract changelog
+      - name: Compose release notes
         shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME
@@ -26,7 +26,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Could not read the $version section from CHANGELOG.md."
           }
-          $notes | Set-Content -LiteralPath release-notes.md -Encoding utf8
+          $templatePath = Join-Path $PWD '.github/release-notes-template.md'
+          if (-not (Test-Path -LiteralPath $templatePath)) {
+            throw "Release notes template not found at $templatePath."
+          }
+          $template = Get-Content -LiteralPath $templatePath -Raw
+          if (-not $template.Contains('{{CHANGELOG}}')) {
+            throw 'Release notes template is missing the {{CHANGELOG}} placeholder.'
+          }
+          $body = $template.Replace('{{CHANGELOG}}', ($notes -join "`n").Trim())
+          $body | Set-Content -LiteralPath release-notes.md -Encoding utf8
       - name: Create draft release
         shell: pwsh
         env:

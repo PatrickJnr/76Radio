@@ -119,7 +119,7 @@ git commit -m "<version>"
 git tag -a "v<version>" -m "76Radio <version>"
 ```
 
-Pushing the tag starts `.github/workflows/release-draft.yml`, which creates a draft GitHub Release titled `76Radio <version>` with that version's section from `CHANGELOG.md` as its body. It does not build or attach the package. The BA2 needs the player's interface archive, FFDec and Flex, so upload `dist\76Radio-<version>.zip` and `dist\SHA256SUMS.txt` to the draft, check them, then publish it.
+Pushing the tag starts `.github/workflows/release-draft.yml`, which creates a draft GitHub Release titled `76Radio <version>`. The body combines the intro and footer in `.github/release-notes-template.md` with that version's section from `CHANGELOG.md`. It does not build or attach the package. The BA2 needs the player's interface archive, FFDec and Flex, so upload `dist\76Radio-<version>.zip` and `dist\SHA256SUMS.txt` to the draft, check them, then publish it.
 
 A fully automatic build would need a self-hosted Windows runner with Fallout 76 and the build tools installed. The hosted workflow deliberately stops at validation.
 
