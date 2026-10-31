@@ -21,6 +21,8 @@ public:
 
     bool Start(std::string_view address);
 
+    void SetVolume(double volume) noexcept;
+
     void Stop() noexcept;
 
     void Shutdown() noexcept;

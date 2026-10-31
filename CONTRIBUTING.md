@@ -8,8 +8,9 @@ Include:
 
 - The Fallout 76 version, from the in-game menu: press Esc, then Z, open Settings, and read it at the bottom left.
 - The xScal version and HUDModLoader version, if used.
-- Whether `version.dll` is installed beside `Fallout76.exe`.
-- The relevant lines from `Data\XSCAL\76Radio\76Radio.log`, starting with `76Radio surface module starting`.
+- Whether `Data\XSCAL\Plugins\76Radio.dll` and `76Radio.dll.sig` are installed.
+- The 76Radio lines from `xscal.log`, which say whether the plugin loaded or why it was rejected.
+- The relevant lines from `Data\XSCAL\76Radio\76Radio.log`, starting with `76Radio xScal plugin starting`.
 - What you expected and what happened.
 - A screenshot of the Pip-Boy or HUD state if the problem is visual.
 
@@ -28,8 +29,8 @@ Do not add:
 - A companion application, launcher, service or background updater.
 - Spotify account access, OAuth, API keys or credential storage.
 - A new injection or mod-loading mechanism.
-- A dependency on a private SDK or a signature the project cannot provide.
-- Game assets, extracted Bethesda files, proprietary SDK files or third-party binaries.
+- A dependency on a private service, account or paid API.
+- Game assets, extracted Bethesda files, the xScal plugin SDK, signing keys, certificates or third-party binaries.
 - Debug traces left in place, or comments that only narrate code.
 - Telemetry, analytics or network calls the player did not ask for.
 
@@ -38,16 +39,18 @@ Do not add:
 Follow the build prerequisites in [README.md](README.md). A change to native code should pass:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -XScalSdk C:\xscal-sdk\sdk\cmake
 ```
 
 or, for the native targets alone:
 
 ```powershell
-cmake --preset msvc-release
+cmake --preset msvc-release -DXSCAL_PLUGIN_SDK_DIR=C:\xscal-sdk\sdk\cmake
 cmake --build --preset msvc-release
 ctest --preset msvc-release
 ```
+
+The plugin SDK, the maintainer's signing key and the `patrickjnr.xcert` certificate are not in this repository and will not be published. Without them, pass `-DBUILD_XSCAL_PLUGIN=OFF` to build and test the libraries. A plugin built without the maintainer's certificate is unsigned and xScal will not load it, so pull requests are checked by the maintainer, who builds and signs the release. See "Building from source" in the README for what can be built without the certificate.
 
 A change to the HUD source also needs `scripts\build-hud.ps1`. A change to the archive list editor should pass `tests\ini-tests.ps1`.
 

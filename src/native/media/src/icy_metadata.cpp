@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstddef>
 #include <cwchar>
 #include <mutex>
@@ -67,6 +68,106 @@ std::string Narrow(const std::wstring& text) {
         CP_UTF8, 0, text.data(), static_cast<int>(text.size()), narrow.data(), size, nullptr,
         nullptr);
     return narrow;
+}
+
+std::string DecodeText(std::string_view text) {
+    const auto nul = text.find('\0');
+    if (nul != std::string_view::npos) {
+        text = text.substr(0, nul);
+    }
+    if (text.empty()) {
+        return {};
+    }
+    int size = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    UINT codePage = CP_UTF8;
+    DWORD flags = MB_ERR_INVALID_CHARS;
+    if (size <= 0) {
+        codePage = 1252;
+        flags = 0;
+        size = MultiByteToWideChar(
+            codePage, flags, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    }
+    if (size <= 0) {
+        codePage = 28591;
+        size = MultiByteToWideChar(
+            codePage, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    }
+    if (size <= 0) {
+        return {};
+    }
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    if (MultiByteToWideChar(
+            codePage, flags, text.data(), static_cast<int>(text.size()), wide.data(), size) <= 0) {
+        return {};
+    }
+    return Narrow(wide);
+}
+
+bool EqualAsciiInsensitive(char left, char right) {
+    return std::tolower(static_cast<unsigned char>(left)) ==
+        std::tolower(static_cast<unsigned char>(right));
+}
+
+std::size_t FindAsciiInsensitive(std::string_view text, std::string_view needle) {
+    if (needle.empty() || needle.size() > text.size()) {
+        return std::string_view::npos;
+    }
+    for (std::size_t index = 0; index + needle.size() <= text.size(); ++index) {
+        bool equal = true;
+        for (std::size_t offset = 0; offset < needle.size(); ++offset) {
+            if (!EqualAsciiInsensitive(text[index + offset], needle[offset])) {
+                equal = false;
+                break;
+            }
+        }
+        if (equal) {
+            return index;
+        }
+    }
+    return std::string_view::npos;
+}
+
+std::string LimitText(std::string value) {
+    if (value.size() <= kMaxTitleLength) {
+        return value;
+    }
+    std::size_t cut = kMaxTitleLength;
+    while (cut > 0 && (static_cast<unsigned char>(value[cut]) & 0xC0) == 0x80) {
+        --cut;
+    }
+    value.resize(cut);
+    return value;
+}
+
+std::string ParseIcyField(std::string_view block, std::string_view field) {
+    const auto key = FindAsciiInsensitive(block, field);
+    if (key == std::string_view::npos) {
+        return {};
+    }
+    std::size_t cursor = key + field.size();
+    while (cursor < block.size() && IsBlank(block[cursor])) {
+        ++cursor;
+    }
+    if (cursor >= block.size() || block[cursor] != '=') {
+        return {};
+    }
+    ++cursor;
+    while (cursor < block.size() && IsBlank(block[cursor])) {
+        ++cursor;
+    }
+    if (cursor >= block.size() || (block[cursor] != '\'' && block[cursor] != '"')) {
+        return {};
+    }
+    const char quote = block[cursor++];
+    const std::size_t start = cursor;
+    while (cursor < block.size()) {
+        if (block[cursor] == quote && cursor + 1 < block.size() && block[cursor + 1] == ';') {
+            return LimitText(Trim(DecodeText(block.substr(start, cursor - start))));
+        }
+        ++cursor;
+    }
+    return {};
 }
 
 class WinHttpHandle {
@@ -151,29 +252,11 @@ std::string QueryHeader(HINTERNET request, const wchar_t* name) {
 }
 
 std::string ParseIcyStreamTitle(std::string_view block) {
-    constexpr std::string_view key = "StreamTitle='";
-    const auto start = block.find(key);
-    if (start == std::string_view::npos) {
-        return {};
-    }
-    const auto valueStart = start + key.size();
-    const auto end = block.find("';", valueStart);
-    if (end == std::string_view::npos) {
-        return {};
-    }
-    auto title = Trim(block.substr(valueStart, end - valueStart));
-    if (title.size() > kMaxTitleLength) {
-        title.resize(kMaxTitleLength);
-    }
-    return title;
+    return ParseIcyField(block, "StreamTitle");
 }
 
 std::string ParseIcyStationName(std::string_view header) {
-    auto name = Trim(header);
-    if (name.size() > kMaxTitleLength) {
-        name.resize(kMaxTitleLength);
-    }
-    return name;
+    return LimitText(Trim(DecodeText(header)));
 }
 
 struct IcyMetadataReader::Impl {
@@ -221,6 +304,9 @@ struct IcyMetadataReader::Impl {
         if (thread.joinable()) {
             thread.join();
         }
+        std::scoped_lock lock{mutex};
+        title.clear();
+        station.clear();
     }
 
     [[nodiscard]] std::string Title() const {

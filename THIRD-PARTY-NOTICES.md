@@ -12,6 +12,7 @@ None of these are committed or packaged.
 | JPEXS Free Flash Decompiler | Patching and verifying Scaleform SWFs | GNU General Public License v3.0 | [github.com/jindrapetrik/jpexs-decompiler](https://github.com/jindrapetrik/jpexs-decompiler) |
 | CMake 3.25 or later | Native build | BSD 3-Clause | [cmake.org](https://cmake.org) |
 | Visual Studio 2026 | Native build with MSVC | Microsoft licence | [visualstudio.microsoft.com](https://visualstudio.microsoft.com) |
+| xScal plugin SDK | Plugin ABI headers, CMake helpers and `xscal-sign` | Distributed by the xScal maintainer; no public licence grant | [Nexus Mods 4183](https://www.nexusmods.com/fallout76/mods/4183) |
 
 The Flash Player 32.0 `playerglobal.swc` that `mxmlc` links against comes from Adobe's Flash Player downloads and remains subject to Adobe's terms.
 
@@ -21,7 +22,7 @@ The HUD relay compiles against shared classes from [HUDModLoader](https://github
 
 ## Runtime dependencies
 
-[xScal](https://github.com/DCHoaxer/xScal) by DCHoaxer provides the shared document store. It is installed separately by the player, is not modified or redistributed here, and remains subject to its own source-available licence.
+[xScal](https://www.nexusmods.com/fallout76/mods/4183) by DCHoaxer loads the 76Radio plugin and provides the shared document store. It is installed separately by the player, is not modified or redistributed here, and remains subject to its own source-available licence. The plugin is signed with a certificate issued by the xScal maintainer; that certificate and the private key are not part of this project.
 
 ## Game interface script
 
@@ -29,4 +30,4 @@ The HUD relay compiles against shared classes from [HUDModLoader](https://github
 
 ## Not included
 
-xScal (`dxgi.dll`), HUDModLoader, Fallout 76, Spotify and the Windows media components are installed separately by the player. 76Radio does not modify or redistribute them.
+xScal (`dxgi.dll`), the xScal plugin SDK, HUDModLoader, Fallout 76, Spotify and the Windows media components are installed or obtained separately by the player. 76Radio does not modify or redistribute them. No signing key or certificate is committed or packaged.

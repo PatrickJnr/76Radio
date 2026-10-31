@@ -30,6 +30,8 @@ public:
         std::filesystem::path artworkPath;
 
         std::filesystem::path stationsPath;
+
+        std::filesystem::path prefsPath;
     };
 
     using Listener = std::function<void(std::shared_ptr<const PlaybackSnapshot>)>;

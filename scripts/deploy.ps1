@@ -1,7 +1,6 @@
 param(
     [string]$GameRoot,
-    [switch]$WhatIf,
-    [string]$AllowRootModule
+    [switch]$WhatIf
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,16 +49,23 @@ foreach ($artifact in $build.artifacts) {
     }
 }
 
-Write-Section 'Module deployment rules'
-$moduleArtifacts = @($build.artifacts | Where-Object { $_.relativeTarget -and $_.name -match '\.dll$' })
-foreach ($artifact in $moduleArtifacts) {
-    $relative = $artifact.relativeTarget -replace '\\', '\'
-    if ($relative -notmatch '\\') {
-        if ($AllowRootModule -ine $artifact.name) {
-            throw "Refusing to deploy $($artifact.name) into the game root. A root level module loads inside the game process and competes with the installed extender. Pass -AllowRootModule $($artifact.name) only if that is intended."
-        }
-        Write-Result "root level module $($artifact.name) approved on the command line" 'warn'
-    }
+Write-Section 'Plugin checks'
+$pluginArtifact = $build.artifacts | Where-Object { $_.kind -eq 'xscal-plugin' } | Select-Object -First 1
+if (-not $pluginArtifact) {
+    throw 'The build has no xScal plugin. Rebuild with the plugin SDK before deploying.'
+}
+if ($pluginArtifact.relativeTarget -ne 'Data\XSCAL\Plugins\76Radio.dll') {
+    throw "Unexpected plugin target $($pluginArtifact.relativeTarget)."
+}
+$signatureArtifact = $build.artifacts | Where-Object { $_.kind -eq 'xscal-plugin-signature' } | Select-Object -First 1
+if (-not $signatureArtifact) {
+    throw 'The plugin has no signature. xScal rejects an unsigned plugin, so the build was not deployed.'
+}
+if ($xscal.pluginsDirectory) {
+    Write-Result "plugin directory: $($xscal.pluginsDirectory)" 'ok'
+}
+if (-not (Test-Path -LiteralPath (Join-Path $resolvedRoot 'Data\XSCAL\Plugins'))) {
+    Write-Result 'Data\XSCAL\Plugins is missing; deployment will create it' 'warn'
 }
 
 $previousManifest = Read-DeploymentManifest -GameRoot $resolvedRoot
@@ -110,6 +116,24 @@ if ($WhatIf) {
 }
 
 Write-Section 'Backup and install'
+$legacyProxy = Join-Path $resolvedRoot 'version.dll'
+$legacyProxyRecord = $null
+if ($previousManifest -and $previousManifest.files) {
+    $legacyProxyRecord = @($previousManifest.files | Where-Object {
+            $_.relativeTarget -eq 'version.dll' }) | Select-Object -First 1
+}
+if ($legacyProxyRecord -and (Test-Path -LiteralPath $legacyProxy)) {
+    $legacyHash = (Get-FileHash -LiteralPath $legacyProxy -Algorithm SHA256).Hash
+    if ($legacyHash -eq $legacyProxyRecord.sha256) {
+        Remove-Item -LiteralPath $legacyProxy -Force
+        Write-Result 'removed the old version.dll host, the plugin replaces it' 'ok'
+    } else {
+        Write-Result 'old version.dll changed since deployment, left in place' 'warn'
+    }
+} elseif (Test-Path -LiteralPath $legacyProxy) {
+    Write-Result 'a version.dll is present beside Fallout76.exe and is not owned by 76Radio, left in place' 'warn'
+}
+
 $installed = @()
 foreach ($artifact in $build.artifacts | Where-Object { $_.relativeTarget }) {
     $target = Join-Path $resolvedRoot ($artifact.relativeTarget -replace '\\', '\')

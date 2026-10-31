@@ -1,5 +1,6 @@
 param(
     [string]$GameRoot,
+    [string]$XScalSdk = $env:RADIO76_XSCAL_SDK_DIR,
     [string]$ApiKey = $env:VT_API_KEY,
     [switch]$UploadToVirusTotal
 )
@@ -22,16 +23,22 @@ $buildArguments = @{}
 if ($GameRoot) {
     $buildArguments.GameRoot = $GameRoot
 }
+if ($XScalSdk) {
+    $buildArguments.XScalSdk = $XScalSdk
+}
 
 & (Join-Path $PSScriptRoot 'build.ps1') @buildArguments
 & (Join-Path $PSScriptRoot 'package.ps1')
 
 $manifest = Read-BuildManifest -RepoRoot $repoRoot
 $version = $manifest.version
-$modulePath = Join-Path $distRoot 'version.dll'
+$modulePath = Join-Path $distRoot '76Radio.dll'
 $packagePath = Join-Path $distRoot ('76Radio-' + $version + '.zip')
 if (-not (Test-Path -LiteralPath $modulePath)) {
-    throw 'dist\version.dll is missing. The native build did not produce the surface module.'
+    throw 'dist\76Radio.dll is missing. The native build did not produce the xScal plugin.'
+}
+if (-not (Test-Path -LiteralPath ($modulePath + '.sig'))) {
+    throw 'dist\76Radio.dll.sig is missing. Sign the plugin before a release.'
 }
 
 $hash = (Get-FileHash -LiteralPath $modulePath -Algorithm SHA256).Hash.ToLower()
@@ -56,7 +63,7 @@ if ($UploadToVirusTotal) {
 
         Invoke-RestMethod -Uri 'https://www.virustotal.com/api/v3/files' -Method Post -Headers @{ 'x-apikey' = $ApiKey } -ContentType "multipart/form-data; boundary=$boundary" -Body $body | Out-Null
         $uploaded = $true
-        Write-Result ("uploaded version.dll, SHA-256 {0}" -f $hashUpper) 'ok'
+        Write-Result ("uploaded 76Radio.dll, SHA-256 {0}" -f $hashUpper) 'ok'
         Write-Result 'one API request used, open the report after a minute to read the detections'
         Write-Result "report $reportUrl"
     } catch {
@@ -65,20 +72,20 @@ if ($UploadToVirusTotal) {
     }
 } else {
     Write-Result 'no upload requested, the daily API quota was not touched' 'warn'
-    Write-Result 'upload dist\version.dll at https://www.virustotal.com/gui/home/upload'
+    Write-Result 'upload dist\76Radio.dll at https://www.virustotal.com/gui/home/upload'
     Write-Result 'or set VT_API_KEY and run the script with -UploadToVirusTotal'
     Write-Result "the report will live at $reportUrl"
 }
 
-$readmeSnippet = 'The {0} build has SHA-256 `{1}`, and a [VirusTotal report]({2}) is available for that exact file. Check that the report hash matches the `version.dll` you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.' -f $version, $hashUpper, $reportUrl
-$nexusSnippet = 'The {0} build has SHA-256 [font=Courier New]{1}[/font], and a [url={2}]VirusTotal report[/url] is available for that exact file. Check that the report hash matches the [font=Courier New]version.dll[/font] you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.' -f $version, $hashUpper, $reportUrl
+$readmeSnippet = 'The {0} build has SHA-256 `{1}`, and a [VirusTotal report]({2}) is available for that exact file. Check that the report hash matches the `76Radio.dll` you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.' -f $version, $hashUpper, $reportUrl
+$nexusSnippet = 'The {0} build has SHA-256 [font=Courier New]{1}[/font], and a [url={2}]VirusTotal report[/url] is available for that exact file. Check that the report hash matches the [font=Courier New]76Radio.dll[/font] you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.' -f $version, $hashUpper, $reportUrl
 $packageHash = if (Test-Path -LiteralPath $packagePath) { (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash.ToUpper() } else { '' }
 
 $lines = @(
     "76Radio $version",
     "Generated $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm UTC'))",
     '',
-    "version.dll  $hashUpper",
+    "76Radio.dll  $hashUpper",
     "package      $packageHash",
     "report       $reportUrl"
 )

@@ -23,6 +23,10 @@ public:
     virtual void SetStationsPath(const std::filesystem::path& path) {
         (void)path;
     }
+
+    virtual void SetPrefsPath(const std::filesystem::path& path) {
+        (void)path;
+    }
 };
 
 }

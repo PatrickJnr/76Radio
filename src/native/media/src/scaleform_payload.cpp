@@ -88,9 +88,12 @@ std::string UnescapePayloadValue(std::string_view value) {
 
 std::string SnapshotToPayload(const PlaybackSnapshot& snapshot) {
     std::string output;
-    output.reserve(320);
+    output.reserve(352);
     AppendField(output, "state", PlaybackStateName(snapshot.state));
     AppendBool(output, "spotify", snapshot.spotifyRunning);
+    AppendBool(output, "genericMedia", snapshot.genericMedia);
+    AppendBool(output, "genericAvailable", snapshot.genericAvailable);
+    AppendField(output, "genericSource", snapshot.genericSource);
     AppendBool(output, "session", snapshot.sessionAvailable);
     AppendBool(output, "error", snapshot.backendError);
     AppendBool(output, "metadata", snapshot.metadata.present);
@@ -118,6 +121,18 @@ std::optional<TransportCommand> ParseCommandPayload(std::string_view payload) {
     if (text.empty()) {
         return std::nullopt;
     }
+    constexpr std::string_view mediaPrefix = "media|";
+    if (text.rfind(mediaPrefix, 0) == 0) {
+        const auto source = text.substr(mediaPrefix.size());
+        if (source != "spotify" && source != "auto" && source != "next") {
+            return std::nullopt;
+        }
+        TransportCommand command;
+        command.action = TransportAction::SelectMedia;
+        command.mediaSource = std::string{source};
+        command.toggleAfterSelect = source != "next";
+        return command;
+    }
     constexpr std::string_view seekPrefix = "seek:";
     if (text.substr(0, seekPrefix.size()) == seekPrefix) {
         const auto digits = text.substr(seekPrefix.size());
@@ -136,7 +151,7 @@ std::optional<TransportCommand> ParseCommandPayload(std::string_view payload) {
     }
     TransportAction action = TransportAction::Toggle;
     if (!ParseTransportAction(text, action) || action == TransportAction::Seek ||
-        action == TransportAction::Stream) {
+        action == TransportAction::Stream || action == TransportAction::SelectMedia) {
 
         return std::nullopt;
     }

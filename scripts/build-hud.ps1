@@ -4,6 +4,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Invoke-NativeAllowStderr {
+    param([scriptblock]$Command)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $Command 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    [pscustomobject]@{ Output = $output; ExitCode = $code }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $FlexHome) {
     $FlexHome = Join-Path $repoRoot 'work\flex'
@@ -32,7 +45,7 @@ if ($text -match '\{playerglobalHome\}' -or $text -match '\{targetPlayerMajorVer
     [System.IO.File]::WriteAllText($config, $text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-$source = Join-Path $repoRoot 'src\scaleform\hud\Radio76Hud.as'
+$source = Join-Path $repoRoot 'src\scaleform\hud\HudRelay.as'
 $output = Join-Path $repoRoot 'assets\hud\76RadioHud.swf'
 New-Item -ItemType Directory -Path (Split-Path -Parent $output) -Force | Out-Null
 $env:FLEX_HOME = $FlexHome
@@ -51,10 +64,14 @@ if (Test-Path -LiteralPath $ffdecJar) {
     if (Test-Path -LiteralPath $verifyRoot) {
         Remove-Item -LiteralPath $verifyRoot -Recurse -Force
     }
-    & java -jar $ffdecJar -export script $verifyRoot $output 2>&1 | Out-Null
-    $exported = Join-Path $verifyRoot 'scripts\Radio76Hud.as'
+    $export = Invoke-NativeAllowStderr { & java -jar $ffdecJar -export script $verifyRoot $output }
+    if ($export.ExitCode -ne 0) {
+        $export.Output | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+        throw 'HUD relay SWF verification failed'
+    }
+    $exported = Join-Path $verifyRoot 'scripts\HudRelay.as'
     if (-not (Test-Path -LiteralPath $exported)) {
-        throw 'HUD relay SWF does not expose the Radio76Hud class'
+        throw 'HUD relay SWF does not expose the HudRelay class'
     }
     if (-not (Select-String -LiteralPath $exported -Pattern 'modStorage' -Quiet)) {
         throw 'HUD relay SWF is missing the modStorage access'

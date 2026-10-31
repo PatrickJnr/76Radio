@@ -227,7 +227,8 @@ PlaybackSnapshot MediaService::PollOnce() {
 }
 
 bool MediaService::CommandAllowed(const PlaybackSnapshot& snapshot, const TransportCommand& command) const noexcept {
-    if (command.action == TransportAction::Stream || command.action == TransportAction::StopStream) {
+    if (command.action == TransportAction::Stream || command.action == TransportAction::StopStream ||
+        command.action == TransportAction::SelectMedia) {
 
         return true;
     }
@@ -249,13 +250,15 @@ bool MediaService::CommandAllowed(const PlaybackSnapshot& snapshot, const Transp
         return snapshot.canSeek && command.positionMs >= 0;
     case TransportAction::Stream:
     case TransportAction::StopStream:
+    case TransportAction::SelectMedia:
         return true;
     }
     return false;
 }
 
 bool MediaService::ExecuteCommand(const TransportCommand& command) {
-    if (command.action == TransportAction::Stream || command.action == TransportAction::StopStream) {
+    if (command.action == TransportAction::Stream || command.action == TransportAction::StopStream ||
+        command.action == TransportAction::SelectMedia) {
 
         try {
             return backend_->Execute(command);

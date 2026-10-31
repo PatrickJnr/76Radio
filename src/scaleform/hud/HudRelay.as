@@ -27,7 +27,7 @@ package
    import Shared.HUDModes;
    import SharedHUDTools;
 
-   public class Radio76Hud extends Sprite
+   public class HudRelay extends Sprite
    {
       private static const STORE_NAME:String = "r76radio";
       private static const STORAGE_NAME:String = "r76radio.command";
@@ -35,7 +35,7 @@ package
       private static const RELAY_STORAGE_NAME:String = "r76radio.relay";
       private static const THEME_STORAGE_NAME:String = "r76radio.theme";
       private static const POLL_MS:int = 200;
-      private static const RELAY_BUILD:String = "0.1.0";
+      private static const RELAY_BUILD:String = "0.2.0";
       private static const STATE_POLL_TICKS:int = 10;
       private static const MINI_WIDTH:Number = 340;
       private static const MINI_HEIGHT:Number = 92;
@@ -149,7 +149,7 @@ package
       private var m_CjkFontWait:uint = 0;
       private var m_CjkFontName:String = "";
 
-      public function Radio76Hud()
+      public function HudRelay()
       {
          super();
          try
@@ -1560,7 +1560,7 @@ package
 
       private function decodeCommand(param1:String) : String
       {
-         if(param1.substr(0, 9) != "stream%7C") return param1;
+         if(param1.substr(0, 9) != "stream%7C" && param1.substr(0, 8) != "media%7C") return param1;
          var result:String = param1.split("%7C").join("|");
          result = result.split("%23").join("#");
          result = result.split("%25").join("%");

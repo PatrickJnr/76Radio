@@ -35,6 +35,9 @@ package
    public class NewPipboy_RadioPage extends IPipBoyPage
    {
       private static const SPOTIFY_FREQUENCY:Number = 0.5;
+      private static const WINDOWS_MEDIA_STATION_NAME:String = "Windows Media";
+      private static const BETA_SUFFIX:String = " [BETA]";
+      private static const WINDOWS_MEDIA_FREQUENCY:Number = 0.75;
       private static const SEPARATOR_FREQUENCY:Number = 0.25;
       private static const SPOTIFY_STATION_NAME:String = "Spotify Radio";
       private static const PANEL_FONT:String = "$MAIN_Font";
@@ -42,7 +45,7 @@ package
       private static const PANEL_COLOR:uint = 16777215;
       private static const PANEL_DISABLED_COLOR:uint = 0x555555;
       private static const POLL_INTERVAL:uint = 250;
-      private static const RELAY_BUILD:String = "0.1.0";
+      private static const RELAY_BUILD:String = "0.2.0";
       private static const THEME_STORAGE_NAME:String = "r76radio.theme";
 
       private static const DIAG_STORAGE_NAME:String = "r76radio.diag";
@@ -98,6 +101,12 @@ package
       private var m_Timer:Timer;
       private var m_PollTimer:Timer;
       private var m_SpotifyEntry:Object;
+      private var m_WindowsMediaEntry:Object;
+      private var m_GenericMedia:Boolean = false;
+      private var m_ShowSpotify:Boolean = true;
+      private var m_WindowsMediaLabel:String = WINDOWS_MEDIA_STATION_NAME + BETA_SUFFIX;
+      private var m_ShowWindowsMedia:Boolean = false;
+      private var m_SourceName:String = "";
       private var m_SpotifySelected:Boolean = false;
       private var m_SpotifyPlaying:Boolean = false;
 
@@ -118,6 +127,8 @@ package
       private var m_CustomStationsLoading:Boolean = false;
       private var m_CustomStationsAttempt:uint = 0;
       private var m_CustomStationsLoader:URLLoader;
+      private var m_CustomStationsDocument:String = "";
+      private var m_CustomStationsReloadTicks:uint = 0;
 
       private var m_FileLoader:URLLoader;
       private var m_FileAttempt:uint = 0;
@@ -265,45 +276,21 @@ package
          this.m_CustomStationsLoading = false;
          var document:String = "";
          try { document = String(this.m_CustomStationsLoader.data); } catch(e:Error) { document = ""; }
-
-         var startIdx:int = document.indexOf("\"stations\"");
-         if(startIdx >= 0)
+         var stations:Array = this.parseStationDocument(document);
+         if(stations == null || document == this.m_CustomStationsDocument) return;
+         var selectedUrl:String = "";
+         var selectedName:String = "";
+         if(this.List_mc != null && this.List_mc.selectedEntry != null)
          {
-            var arrayStart:int = document.indexOf("[", startIdx);
-            var arrayEnd:int = document.lastIndexOf("]");
-            if(arrayStart >= 0 && arrayEnd > arrayStart)
-            {
-               var arrayText:String = document.substring(arrayStart + 1, arrayEnd);
-               var objects:Array = arrayText.split("}");
-
-               var fakeFreq:Number = -1.0;
-               for(var i:int = 0; i < objects.length; i++)
-               {
-                  var objText:String = objects[i];
-
-                  var stationUrl:String = this.readJsonString(objText,"streamurl");
-
-                  if(stationUrl.length > 0)
-                  {
-                     var stationName:String = this.readJsonString(objText,"name");
-                     if(stationName.length == 0) stationName = stationUrl;
-
-                     this.m_CustomStations.push({
-                        "StationName": stationName,
-                        "Frequency": fakeFreq,
-                        "InRange": true,
-                        "Active": false,
-                        "CustomUrl": stationUrl
-                     });
-                     fakeFreq -= 1.0;
-                  }
-               }
-            }
+            if(this.List_mc.selectedEntry.CustomUrl != null) selectedUrl = String(this.List_mc.selectedEntry.CustomUrl);
+            selectedName = String(this.List_mc.selectedEntry.StationName);
          }
-
+         this.m_CustomStationsDocument = document;
+         this.m_CustomStations = stations;
          if(this.List_mc != null && this.List_mc.entryList != null)
          {
             this.processProvider(PageData);
+            this.restoreStationSelection(selectedUrl,selectedName);
          }
       }
 
@@ -314,6 +301,35 @@ package
          this.loadCustomStations();
       }
 
+      private function parseStationDocument(param1:String) : Array
+      {
+         if(param1.length == 0 || param1.length > 262144) return null;
+         var keyIndex:int = param1.indexOf("\"stations\"");
+         if(keyIndex < 0) return null;
+         var arrayStart:int = param1.indexOf("[",keyIndex);
+         var arrayEnd:int = param1.lastIndexOf("]");
+         if(arrayStart < 0 || arrayEnd <= arrayStart) return null;
+         var objects:Array = param1.substring(arrayStart + 1,arrayEnd).split("}");
+         var stations:Array = [];
+         var seen:Object = {};
+         var fakeFreq:Number = -1.0;
+         for(var i:int = 0; i < objects.length && stations.length < 256; i++)
+         {
+            var objectText:String = String(objects[i]);
+            var stationUrl:String = this.readJsonString(objectText,"streamurl");
+            var stationName:String = this.readJsonString(objectText,"name");
+            var lowered:String = stationUrl.toLowerCase();
+            if(stationName.length == 0) stationName = stationUrl;
+            if(stationName.length > 256 || stationUrl.length == 0 || stationUrl.length > 2048) continue;
+            if(lowered.indexOf("http://") != 0 && lowered.indexOf("https://") != 0) continue;
+            if(seen[lowered] === true) continue;
+            seen[lowered] = true;
+            stations.push({"StationName":stationName,"Frequency":fakeFreq,"InRange":true,"Active":false,"CustomUrl":stationUrl});
+            fakeFreq -= 1.0;
+         }
+         return stations;
+      }
+
       private function readJsonString(param1:String, param2:String) : String
       {
          var key:int = param1.indexOf("\"" + param2 + "\"");
@@ -322,9 +338,48 @@ package
          if(colon < 0) return "";
          var quote:int = param1.indexOf("\"",colon + 1);
          if(quote < 0) return "";
-         var end:int = param1.indexOf("\"",quote + 1);
-         if(end < 0) return "";
-         return param1.substring(quote + 1,end);
+         var result:String = "";
+         for(var i:int = quote + 1; i < param1.length; i++)
+         {
+            var character:String = param1.charAt(i);
+            if(character == "\"") return result;
+            if(character == "\\" && i + 1 < param1.length)
+            {
+               i++;
+               var escaped:String = param1.charAt(i);
+               if(escaped == "u" && i + 4 < param1.length)
+               {
+                  var code:Number = parseInt(param1.substr(i + 1,4),16);
+                  if(!isNaN(code)) result += String.fromCharCode(code);
+                  i += 4;
+               }
+               else if(escaped == "n") result += "\n";
+               else if(escaped == "t") result += "\t";
+               else result += escaped;
+            }
+            else result += character;
+         }
+         return "";
+      }
+
+      private function restoreStationSelection(param1:String, param2:String) : void
+      {
+         if(this.List_mc == null || this.List_mc.entryList == null) return;
+         var entries:Array = this.List_mc.entryList;
+         for(var i:int = 0; i < entries.length; i++)
+         {
+            var entry:Object = entries[i];
+            if(param1.length > 0 && entry.CustomUrl != null && String(entry.CustomUrl) == param1)
+            {
+               this.List_mc.selectedIndex = i;
+               return;
+            }
+            if(param1.length == 0 && param2.length > 0 && String(entry.StationName) == param2)
+            {
+               this.List_mc.selectedIndex = i;
+               return;
+            }
+         }
       }
 
       private function subscribeThemeSource() : void
@@ -437,6 +492,7 @@ package
             index++;
          }
          if(this.m_SpotifyEntry == null) this.m_SpotifyEntry = this.createSpotifyEntry();
+         if(this.m_WindowsMediaEntry == null) this.m_WindowsMediaEntry = this.createWindowsMediaEntry();
 
          var custom:Array = [];
          for(var i:int = 0; i < this.m_CustomStations.length; i++)
@@ -446,8 +502,11 @@ package
 
          vanilla.sortOn(["InRange","StationName"],[Array.DESCENDING | Array.NUMERIC,Array.CASEINSENSITIVE]);
          custom.sortOn("StationName",Array.CASEINSENSITIVE);
-         var separator:Object = this.createSeparatorEntry();
-         var stations:Array = vanilla.concat([separator],[this.m_SpotifyEntry],custom);
+         var mediaTail:Array = [];
+         if(this.m_ShowSpotify) mediaTail.push(this.m_SpotifyEntry);
+         if(this.m_ShowWindowsMedia) mediaTail.push(this.m_WindowsMediaEntry);
+         mediaTail = mediaTail.concat(custom);
+         var stations:Array = mediaTail.length > 0 ? vanilla.concat([this.createSeparatorEntry()],mediaTail) : vanilla;
 
          this.syncEntryState();
          this.List_mc.entryList = stations;
@@ -455,7 +514,7 @@ package
          if(this.stage != null) this.stage.focus = this.List_mc;
          if(this.List_mc.selectedIndex == -1) this.List_mc.selectedIndex = 0;
          var entry:Object = this.List_mc.selectedEntry;
-         this.m_SpotifySelected = Boolean(entry) && this.isSpotifyEntry(entry);
+         this.m_SpotifySelected = Boolean(entry) && this.isMediaEntry(entry);
          this.setPanelVisible(this.m_SpotifySelected || this.m_StreamActive);
          this.updateRadioFrequency();
          this.safeRefresh();
@@ -473,7 +532,7 @@ package
             switch(param1)
             {
                case "Accept":
-                  this.onPlayClick(null);
+                  if(!this.switchMediaMode(this.List_mc.selectedEntry)) this.onPlayClick(null);
                   return true;
                case "Cancel":
                   break;
@@ -497,11 +556,11 @@ package
             return;
          }
 
-         if(Boolean(entry) && this.isSpotifyEntry(entry))
+         if(Boolean(entry) && this.isMediaEntry(entry))
          {
             var stoppedStation:Boolean = this.stopActiveStation();
             this.sendHudMessage("showcard");
-
+            if(this.switchMediaMode(entry)) return;
             if(!(this.m_SpotifyPlaying && stoppedStation)) this.sendCommand("toggle");
             return;
          }
@@ -517,14 +576,12 @@ package
 
                this.sendDiagnostic("station " + entry.StationName);
                this.sendCommand("stream|" + entry.CustomUrl);
-               this.m_StreamActive = true;
                this.m_StreamStation = entry.StationName;
-               this.m_AudioPlaying = true;
+               this.m_AudioPlaying = false;
                this.m_SpotifyPlaying = false;
-               this.syncEntryState();
-               if(this.List_mc != null) this.List_mc.InvalidateData();
                this.sendHudMessage("showcard");
-               this.setLabelText(this.m_StateField, "STREAMING");
+               this.setPanelVisible(true);
+               this.setLabelText(this.m_StateField, "CONNECTING");
                this.setLabelText(this.m_NowPlayingField, "CUSTOM RADIO");
                this.setTitleText(entry.StationName);
                this.setLabelText(this.m_ArtistField, "Internet Stream");
@@ -555,7 +612,7 @@ package
          {
             var station:Object = stations[index];
 
-            if(Boolean(station) && !this.isSpotifyEntry(station) && station.CustomUrl == null && Boolean(station.Active))
+            if(Boolean(station) && !this.isMediaEntry(station) && station.CustomUrl == null && Boolean(station.Active))
             {
                BSUIDataManager.dispatchEvent(new CustomEvent(NewPipBoyShared.RADIO_TOGGLE_ACTIVE,{"frequency":station.Frequency}));
                return true;
@@ -568,7 +625,7 @@ package
       private function onListSelectionChange(param1:Event) : void
       {
          var entry:Object = this.List_mc.selectedEntry;
-         this.m_SpotifySelected = Boolean(entry) && this.isSpotifyEntry(entry);
+         this.m_SpotifySelected = Boolean(entry) && this.isMediaEntry(entry);
          this.setPanelVisible(this.m_SpotifySelected || this.m_StreamActive);
          if(Boolean(entry) && Boolean(entry.Separator))
          {
@@ -613,7 +670,7 @@ package
          var entry:Object = this.List_mc != null ? this.List_mc.selectedEntry : null;
          if(Boolean(entry) && this.RadioWave_mc != null)
          {
-            if(this.isSpotifyEntry(entry))
+            if(this.isMediaEntry(entry))
                this.RadioWave_mc.freq = this.m_SpotifyPlaying ? int(GlobalFunc.Lerp(5,10,70,110,76,true)) : RadioWave.NO_AMP;
             else if(Boolean(entry.Separator))
                this.RadioWave_mc.freq = RadioWave.NO_AMP;
@@ -634,6 +691,12 @@ package
       private function onPoll(param1:TimerEvent) : void
       {
          this.safeRefresh();
+         this.m_CustomStationsReloadTicks++;
+         if(this.m_CustomStationsReloadTicks >= 10)
+         {
+            this.m_CustomStationsReloadTicks = 0;
+            this.loadCustomStations();
+         }
          this.m_ThemeTicks++;
          if(this.m_ThemeTicks % 8 == 0) this.publishPipboyTheme();
       }
@@ -1142,6 +1205,83 @@ package
          return {"StationName":SPOTIFY_STATION_NAME,"Frequency":SPOTIFY_FREQUENCY,"InRange":true,"Active":false};
       }
 
+      private function isWindowsMediaEntry(param1:Object) : Boolean
+      {
+         return param1 != null && param1.Frequency == WINDOWS_MEDIA_FREQUENCY;
+      }
+
+      private function isMediaEntry(param1:Object) : Boolean
+      {
+         return this.isSpotifyEntry(param1) || this.isWindowsMediaEntry(param1);
+      }
+
+      private function createWindowsMediaEntry() : Object
+      {
+         return {"StationName":WINDOWS_MEDIA_STATION_NAME,"Frequency":WINDOWS_MEDIA_FREQUENCY,"InRange":true,"Active":false};
+      }
+
+      private function updateMediaEntryVisibility(param1:Boolean, param2:Boolean) : void
+      {
+         if(param1 == this.m_ShowSpotify && param2 == this.m_ShowWindowsMedia) return;
+         this.m_ShowSpotify = param1;
+         this.m_ShowWindowsMedia = param2;
+         if(PageData == null || this.List_mc == null || this.List_mc.entryList == null) return;
+         var selectedUrl:String = "";
+         var selectedName:String = "";
+         if(this.List_mc.selectedEntry != null)
+         {
+            if(this.List_mc.selectedEntry.CustomUrl != null) selectedUrl = String(this.List_mc.selectedEntry.CustomUrl);
+            selectedName = String(this.List_mc.selectedEntry.StationName);
+         }
+         this.processProvider(PageData);
+         this.restoreStationSelection(selectedUrl,selectedName);
+      }
+
+      private function switchMediaMode(param1:Object) : Boolean
+      {
+         if(this.isWindowsMediaEntry(param1) && !this.m_GenericMedia)
+         {
+            this.sendCommand("media|auto");
+            return true;
+         }
+         if(this.isSpotifyEntry(param1) && this.m_GenericMedia)
+         {
+            this.sendCommand("media|spotify");
+            return true;
+         }
+         return false;
+      }
+
+      private function displaySourceName(param1:String) : String
+      {
+         var name:String = param1;
+         var bang:int = name.indexOf("!");
+         if(bang > 0) name = name.substring(0,bang);
+         var slash:int = Math.max(name.lastIndexOf("\\"),name.lastIndexOf("/"));
+         if(slash >= 0) name = name.substring(slash + 1);
+         if(name.length > 4 && name.substr(name.length - 4).toLowerCase() == ".exe") name = name.substr(0,name.length - 4);
+         var lowered:String = name.toLowerCase();
+         if(lowered.indexOf("msedge") >= 0) return "Edge";
+         if(lowered.indexOf("chrome") >= 0) return "Chrome";
+         if(lowered.indexOf("firefox") >= 0) return "Firefox";
+         if(lowered.indexOf("brave") >= 0) return "Brave";
+         if(lowered.indexOf("opera") >= 0) return "Opera";
+         if(lowered.indexOf("vlc") >= 0) return "VLC";
+         if(lowered.indexOf("zunemusic") >= 0 || lowered.indexOf("media.player") >= 0) return "Media Player";
+         return name.length > 24 ? name.substr(0,24) : name;
+      }
+
+      private function onSourceClick(param1:MouseEvent) : void
+      {
+         if(!this.m_GenericMedia)
+         {
+            GlobalFunc.PlayMenuSound("UIMenuCancel");
+            return;
+         }
+         GlobalFunc.PlayMenuSound("UIMenuFocus");
+         this.sendCommand("media|next");
+      }
+
       private function createSeparatorEntry() : Object
       {
          return {"StationName":"- - - - - - - - - -","Frequency":SEPARATOR_FREQUENCY,"InRange":true,"Active":false,"Separator":true};
@@ -1152,9 +1292,22 @@ package
          var changed:Boolean = false;
          if(this.m_SpotifyEntry != null)
          {
-            if(Boolean(this.m_SpotifyEntry.Active) != this.m_SpotifyPlaying) changed = true;
-            this.m_SpotifyEntry.Active = this.m_SpotifyPlaying;
+            var spotifyActive:Boolean = this.m_SpotifyPlaying && !this.m_GenericMedia;
+            if(Boolean(this.m_SpotifyEntry.Active) != spotifyActive) changed = true;
+            this.m_SpotifyEntry.Active = spotifyActive;
             this.m_SpotifyEntry.InRange = true;
+         }
+         if(this.m_WindowsMediaEntry != null)
+         {
+            var windowsActive:Boolean = this.m_SpotifyPlaying && this.m_GenericMedia;
+            if(Boolean(this.m_WindowsMediaEntry.Active) != windowsActive) changed = true;
+            this.m_WindowsMediaEntry.Active = windowsActive;
+            this.m_WindowsMediaEntry.InRange = true;
+            if(String(this.m_WindowsMediaEntry.StationName) != this.m_WindowsMediaLabel)
+            {
+               this.m_WindowsMediaEntry.StationName = this.m_WindowsMediaLabel;
+               changed = true;
+            }
          }
          if(this.m_CustomStations != null)
          {
@@ -1164,7 +1317,7 @@ package
                var station:Object = this.m_CustomStations[index];
                if(station != null)
                {
-                  var stationActive:Boolean = this.m_StreamActive && this.m_StreamStation.length > 0 &&
+                  var stationActive:Boolean = this.m_StreamActive && this.m_AudioPlaying && this.m_StreamStation.length > 0 &&
                      String(station.StationName) == this.m_StreamStation;
                   if(Boolean(station.Active) != stationActive) changed = true;
                   station.Active = stationActive;
@@ -1223,7 +1376,7 @@ package
          this.ensureStorage();
          if(this.writeStorageCommand(param1)) return;
 
-         if(param1.substr(0,7) == "stream|")
+         if(param1.substr(0,7) == "stream|" || param1.substr(0,6) == "media|")
          {
             if(this.sendHudMessage(this.encodeCommand(param1))) return;
          }
@@ -2112,6 +2265,11 @@ package
          this.m_CanToggle = canToggle;
          this.m_CanSeek = canSeek;
          this.m_StreamActive = ready && stream;
+         this.m_GenericMedia = ready && param1["genericMedia"] == "1";
+         this.updateMediaEntryVisibility(!ready || spotify,ready && (param1["genericAvailable"] == "1" || this.m_GenericMedia));
+         this.m_SourceName = ready && param1["source"] != null ? this.displaySourceName(String(param1["source"])) : "";
+         var detectedSource:String = ready && param1["genericSource"] != null ? this.displaySourceName(String(param1["genericSource"])) : "";
+         this.m_WindowsMediaLabel = (detectedSource.length > 0 ? detectedSource : WINDOWS_MEDIA_STATION_NAME) + BETA_SUFFIX;
          this.m_AudioPlaying = ready && state == "playing";
 
          this.m_SpotifyPlaying = this.m_AudioPlaying && !this.m_StreamActive;
@@ -2129,8 +2287,9 @@ package
          this.updateTimeField();
          if(ready)
          {
-            this.setLabelText(this.m_StateField,state == "playing" ? "PLAYING" : (state == "paused" ? "PAUSED" : "STOPPED"));
-            if(this.m_StreamActive) this.setLabelText(this.m_StatusField,"Status: Internet stream | relay " + this.relayState());
+            this.setLabelText(this.m_StateField,state.toUpperCase());
+            if(this.m_StreamActive) this.setLabelText(this.m_StatusField,"Status: Internet stream " + state + " | relay " + this.relayState());
+            else if(this.m_GenericMedia) this.setLabelText(this.m_StatusField,session ? "SOURCE: " + this.m_SourceName + " >" : "Status: no Windows media session | relay " + this.relayState());
             else if(session) this.setLabelText(this.m_StatusField,"Status: Connected | relay " + this.relayState());
             else if(spotify) this.setLabelText(this.m_StatusField,"Status: Spotify idle | relay " + this.relayState());
             else this.setLabelText(this.m_StatusField,"Status: Spotify not running | relay " + this.relayState());
@@ -2238,6 +2397,7 @@ package
 
          this.m_StatusField = this.createLabel("Status: waiting",13);
          this.m_StatusField.x = 566; this.m_StatusField.y = 564;
+         this.m_StatusField.addEventListener(MouseEvent.CLICK,this.onSourceClick);
          this.m_StatusField.width = 300;
 
          this.m_ArtStatusField = this.createLabel("Art: wait",11);
@@ -2417,7 +2577,7 @@ package
          }
          GlobalFunc.PlayMenuSound("UIMenuFocus");
 
-         if(this.m_StreamActive) this.sendCommand("pause");
+         if(this.m_StreamActive) this.sendCommand("streamstop");
          else this.sendCommand("toggle");
       }
 

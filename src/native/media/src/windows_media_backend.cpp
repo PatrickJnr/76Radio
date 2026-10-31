@@ -1,5 +1,6 @@
 #include "radio76/windows_media_backend.h"
 
+#include "radio76/game_audio.h"
 #include "radio76/stream_catalog.h"
 #include "radio76/stream_player.h"
 
@@ -267,6 +268,8 @@ std::pair<std::string, std::string> SplitStreamTitle(const std::string& text) {
         TrimSpaces(std::string_view{text}.substr(separator + 3))};
 }
 
+constexpr int kVolumeReadRetries = 3;
+
 class WindowsMediaBackend final : public MediaBackend {
 public:
     explicit WindowsMediaBackend(std::function<void(std::string_view)> trace)
@@ -275,8 +278,10 @@ public:
           }) {}
 
     PlaybackSnapshot Poll() override {
+        RefreshStreamVolume();
         PlaybackSnapshot snapshot;
         snapshot.spotifyRunning = RefreshSpotifyProcess();
+        snapshot.genericMedia = genericMode_;
         if (streamActive_) {
             return StreamSnapshot();
         }
@@ -289,17 +294,19 @@ public:
             return snapshot;
         }
         try {
-            const auto session = FindSpotifySession();
+            snapshot.genericSource = PreferredGeneralSource();
+            snapshot.genericAvailable = !snapshot.genericSource.empty();
+            const auto session = genericMode_ ? FindGeneralSession(false) : FindSpotifySession();
             if (!session) {
                 if (!noSessionReported_) {
                     noSessionReported_ = true;
-                    Trace("no Spotify session in the session list");
+                    Trace(genericMode_ ? "selected Windows media session unavailable" : "no Spotify session in the session list");
                 }
                 return snapshot;
             }
             if (noSessionReported_) {
                 noSessionReported_ = false;
-                Trace("Spotify session found");
+                Trace(genericMode_ ? "Windows media session found" : "Spotify session found");
             }
             snapshot.sessionAvailable = true;
             snapshot.sourceAppId = ToUtf8(session.SourceAppUserModelId());
@@ -353,6 +360,36 @@ public:
         if (command.action == TransportAction::StopStream) {
             return StopStream();
         }
+        if (command.action == TransportAction::SelectMedia) {
+            if (streamActive_) {
+                StopStream();
+            }
+            if (!EnsureApartment() || !EnsureManager()) {
+                return false;
+            }
+            const bool cycling = command.mediaSource == "next";
+            if (cycling && !genericMode_) {
+                return false;
+            }
+            genericMode_ = command.mediaSource != "spotify";
+            if (cycling) {
+                return CycleGeneralSession();
+            }
+            selectedGeneralAppId_.clear();
+            try {
+                const auto session = genericMode_ ? FindGeneralSession(true) : FindSpotifySession();
+                if (!session) {
+                    return false;
+                }
+                if (!command.toggleAfterSelect) {
+                    return true;
+                }
+                return session.TryTogglePlayPauseAsync().get();
+            } catch (...) {
+                manager_ = nullptr;
+                return false;
+            }
+        }
         bool leftStream = false;
         if (streamActive_) {
 
@@ -365,7 +402,7 @@ public:
             return leftStream;
         }
         try {
-            const auto session = FindSpotifySession();
+            const auto session = genericMode_ ? FindGeneralSession(false) : FindSpotifySession();
             if (!session) {
                 return leftStream;
             }
@@ -392,6 +429,7 @@ public:
                 break;
             case TransportAction::Stream:
             case TransportAction::StopStream:
+            case TransportAction::SelectMedia:
                 break;
             }
             return result || leftStream;
@@ -405,6 +443,11 @@ public:
 
     void SetArtworkPath(const std::filesystem::path& path) override {
         artworkPath_ = path;
+    }
+
+    void SetPrefsPath(const std::filesystem::path& path) override {
+        prefsPath_ = path;
+        prefsRead_ = false;
     }
 
     void SetStationsPath(const std::filesystem::path& path) override {
@@ -425,6 +468,32 @@ public:
     }
 
 private:
+    void RefreshStreamVolume() {
+        if (prefsPath_.empty()) {
+            return;
+        }
+        std::error_code error;
+        const auto stamp = std::filesystem::last_write_time(prefsPath_, error);
+        if (error || (prefsRead_ && stamp == prefsStamp_)) {
+            return;
+        }
+        prefsStamp_ = stamp;
+        const auto volume = ReadPipboyRadioVolume(prefsPath_);
+        if (volume) {
+            prefsRead_ = true;
+            volumeMisses_ = 0;
+            stream_.SetVolume(*volume);
+            Trace("Pip-Boy Radio volume " + std::to_string(static_cast<int>(*volume * 100.0 + 0.5)) + " percent");
+            return;
+        }
+        if (++volumeMisses_ <= kVolumeReadRetries) {
+            return;
+        }
+        prefsRead_ = true;
+        stream_.SetVolume(1.0);
+        Trace("Pip-Boy Radio volume not found in the game settings, using full volume");
+    }
+
     bool RefreshSpotifyProcess() {
         const bool running = IsSpotifyProcessRunning();
         if (running != spotifyProcessSeen_) {
@@ -437,17 +506,25 @@ private:
     PlaybackSnapshot StreamSnapshot() {
         PlaybackSnapshot snapshot;
         snapshot.spotifyRunning = spotifyProcessSeen_;
+        snapshot.genericMedia = genericMode_;
         snapshot.sessionAvailable = true;
         snapshot.streamActive = true;
         snapshot.state = stream_.State();
-        snapshot.streamStation = streamTitle_;
+        const std::string refreshedTitle = catalog_.ConfiguredTitleFor(streamUrl_);
+        if (!refreshedTitle.empty()) {
+            streamConfiguredTitle_ = refreshedTitle;
+        }
+        const std::string icyStation = stream_.Station();
+        snapshot.streamStation = !streamConfiguredTitle_.empty()
+            ? streamConfiguredTitle_
+            : (!icyStation.empty() ? icyStation : streamTitle_);
 
         const std::string icyTitle = stream_.Title();
         if (!icyTitle.empty()) {
             const auto [artist, track] = SplitStreamTitle(icyTitle);
             snapshot.metadata = NormalizeMetadata(track, artist, "Live");
         } else {
-            snapshot.metadata = NormalizeMetadata(streamTitle_, "Internet Stream", "Live");
+            snapshot.metadata = NormalizeMetadata(snapshot.streamStation, "Internet Stream", "Live");
         }
 
         snapshot.canPlay = true;
@@ -473,12 +550,14 @@ private:
             StopStream();
         }
         streamUrl_ = url;
+        streamConfiguredTitle_ = catalog_.ConfiguredTitleFor(url);
         streamTitle_ = catalog_.TitleFor(url);
         if (!stream_.Start(url)) {
             Trace("stream could not start: " + streamTitle_);
             streamActive_ = false;
             streamUrl_.clear();
             streamTitle_.clear();
+            streamConfiguredTitle_.clear();
             return false;
         }
         streamActive_ = true;
@@ -502,6 +581,7 @@ private:
         streamActive_ = false;
         streamUrl_.clear();
         streamTitle_.clear();
+        streamConfiguredTitle_.clear();
         Trace("stream stopped " + title);
         return true;
     }
@@ -692,19 +772,123 @@ private:
         return fallback;
     }
 
+    std::string PreferredGeneralSource() {
+        std::vector<std::string> candidates;
+        for (const auto& session : manager_.GetSessions()) {
+            const std::string appId = ToUtf8(session.SourceAppUserModelId());
+            if (!IsSpotifyApplication(appId)) {
+                candidates.push_back(appId);
+            }
+        }
+        if (candidates.empty()) {
+            return {};
+        }
+        if (genericMode_ && std::find(candidates.begin(), candidates.end(), selectedGeneralAppId_) != candidates.end()) {
+            return selectedGeneralAppId_;
+        }
+        try {
+            const auto current = manager_.GetCurrentSession();
+            if (current) {
+                const std::string appId = ToUtf8(current.SourceAppUserModelId());
+                if (std::find(candidates.begin(), candidates.end(), appId) != candidates.end()) {
+                    return appId;
+                }
+            }
+        } catch (...) {
+        }
+        return candidates.front();
+    }
+
+    bool CycleGeneralSession() {
+        try {
+            std::vector<std::string> candidates;
+            for (const auto& session : manager_.GetSessions()) {
+                const std::string appId = ToUtf8(session.SourceAppUserModelId());
+                if (!IsSpotifyApplication(appId)) {
+                    candidates.push_back(appId);
+                }
+            }
+            if (candidates.size() < 2) {
+                return false;
+            }
+            const auto current = std::find(candidates.begin(), candidates.end(), selectedGeneralAppId_);
+            const std::size_t next = current == candidates.end() ? 0 : (current - candidates.begin() + 1) % candidates.size();
+            selectedGeneralAppId_ = candidates[next];
+            return true;
+        } catch (...) {
+            manager_ = nullptr;
+            return false;
+        }
+    }
+
+    GlobalSystemMediaTransportControlsSession FindGeneralSession(bool allowSelection) {
+        if (!manager_) {
+            return nullptr;
+        }
+        const auto sessions = manager_.GetSessions();
+        if (!selectedGeneralAppId_.empty()) {
+            for (const auto& session : sessions) {
+                if (ToUtf8(session.SourceAppUserModelId()) == selectedGeneralAppId_) {
+                    return session;
+                }
+            }
+            return nullptr;
+        }
+        if (!allowSelection) {
+            return nullptr;
+        }
+        try {
+            const auto current = manager_.GetCurrentSession();
+            if (current && !IsSpotifyApplication(ToUtf8(current.SourceAppUserModelId()))) {
+                selectedGeneralAppId_ = ToUtf8(current.SourceAppUserModelId());
+                return current;
+            }
+        } catch (...) {
+        }
+        GlobalSystemMediaTransportControlsSession fallback{nullptr};
+        for (const auto& session : sessions) {
+            const std::string appId = ToUtf8(session.SourceAppUserModelId());
+            if (IsSpotifyApplication(appId)) {
+                continue;
+            }
+            try {
+                if (session.GetPlaybackInfo().PlaybackStatus() ==
+                    GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing) {
+                    selectedGeneralAppId_ = appId;
+                    return session;
+                }
+            } catch (...) {
+            }
+            if (!fallback) {
+                fallback = session;
+            }
+        }
+        if (fallback) {
+            selectedGeneralAppId_ = ToUtf8(fallback.SourceAppUserModelId());
+        }
+        return fallback;
+    }
+
     std::function<void(std::string_view)> trace_;
     std::filesystem::path artworkPath_;
     std::string artworkSignature_;
     StreamPlayer stream_;
     StationCatalog catalog_;
+    std::filesystem::path prefsPath_;
+    std::filesystem::file_time_type prefsStamp_{};
+    bool prefsRead_ = false;
+    int volumeMisses_ = 0;
     bool streamActive_ = false;
     std::string streamUrl_;
     std::string streamTitle_;
+    std::string streamConfiguredTitle_;
     GlobalSystemMediaTransportControlsSessionManager manager_{nullptr};
     bool apartmentInitialized_ = false;
     bool managerFailed_ = false;
     bool spotifyProcessSeen_ = false;
     bool noSessionReported_ = false;
+    bool genericMode_ = false;
+    std::string selectedGeneralAppId_;
 };
 
 }

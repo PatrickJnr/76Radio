@@ -147,6 +147,12 @@ const char* ActionName(TransportAction action) noexcept {
         return "previous";
     case TransportAction::Seek:
         return "seek";
+    case TransportAction::Stream:
+        return "stream";
+    case TransportAction::StopStream:
+        return "streamstop";
+    case TransportAction::SelectMedia:
+        return "media";
     }
     return "unknown";
 }
@@ -217,6 +223,7 @@ std::string BuildStatePayload(const PlaybackSnapshot* snapshot) {
     clamped.metadata.artist = ClampMetadata(clamped.metadata.artist);
     clamped.metadata.album = ClampMetadata(clamped.metadata.album);
     clamped.sourceAppId = ClampMetadata(clamped.sourceAppId);
+    clamped.genericSource = ClampMetadata(clamped.genericSource);
     std::string payload = "ready=1\n";
     payload += SnapshotToPayload(clamped);
     if (payload.size() > kMaxStateBytes) {
@@ -243,6 +250,9 @@ std::string BuildStateDocumentBody(const PlaybackSnapshot* snapshot, bool includ
     document += ",\"host\":\"76radio\"";
     document += ",\"state\":" + JsonString(PlaybackStateName(clamped.state));
     document += ",\"spotify\":" + JsonFlag(clamped.spotifyRunning);
+    document += ",\"genericMedia\":" + JsonFlag(clamped.genericMedia);
+    document += ",\"genericAvailable\":" + JsonFlag(clamped.genericAvailable);
+    document += ",\"genericSource\":" + JsonString(clamped.genericSource);
     document += ",\"session\":" + JsonFlag(clamped.sessionAvailable);
     document += ",\"metadata\":" + JsonFlag(clamped.metadata.present);
     document += ",\"title\":" + JsonString(clamped.metadata.title);

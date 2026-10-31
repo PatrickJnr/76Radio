@@ -376,6 +376,10 @@ void DocumentChannel::PollDiagDocument() {
     if (line.rfind(diagnosticPrefix, 0) == 0) {
         line.remove_prefix(diagnosticPrefix.size());
     }
+    constexpr std::string_view quietThemeNotice = "theme none ";
+    if (line.rfind(quietThemeNotice, 0) == 0) {
+        return;
+    }
     Log("page: " + std::string{line});
 }
 
@@ -486,6 +490,10 @@ std::string DocumentChannel::DescribeState(const PlaybackSnapshot* snapshot) {
         line += snapshot->metadata.artist.empty() ? std::string{"unknown artist"} : bridge::ClampMetadata(snapshot->metadata.artist);
         line += " - ";
         line += snapshot->metadata.title.empty() ? std::string{"unknown track"} : bridge::ClampMetadata(snapshot->metadata.title);
+        return line;
+    }
+    if (snapshot->genericMedia) {
+        line += " | no Windows media session";
         return line;
     }
     line += snapshot->spotifyRunning ? " | spotify running, no session" : " | spotify not running";

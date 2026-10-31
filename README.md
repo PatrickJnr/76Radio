@@ -14,8 +14,12 @@ There is no companion application, no account login and no server. Spotify is co
 - Album artwork from the Windows media session, with the radio wave strip as a fallback.
 - A seekable progress bar for Spotify tracks.
 - Custom internet stations from a JSON file, with a divider between the game's stations and yours.
-- A starter list of 20 tested internet stations, so the tab is populated on first launch.
-- ICY song metadata from stations that broadcast it.
+- A starter list of 20 internet stations, so the tab is populated on first launch.
+- Playback states that match what the player is doing: connecting, buffering, playing, reconnecting, failed and unsupported.
+- Automatic reconnection after a dropped stream, and M3U, M3U8, PLS and HLS station addresses.
+- ICY song metadata and station names from stations that broadcast them.
+- Internet stations that follow the game's Pip-Boy Radio volume slider.
+- An optional beta entry, named after the app it finds (for example `Chrome [BETA]`), that controls another media player, separate from Spotify Radio.
 - Automatic handover: starting a station pauses Spotify, and returning to Spotify or a game station closes the stream.
 - An active marker on the station that is playing.
 - A HUD now-playing card that follows the Pip-Boy colour.
@@ -29,12 +33,11 @@ The mod does not change game files, game networking or gameplay values. It does 
 | Requirement | Needed for |
 | --- | --- |
 | Fallout 76 on Windows 10 or 11 | The game |
-| [xScal](https://github.com/DCHoaxer/xScal) installed as `dxgi.dll` beside `Fallout76.exe` | Required. 76Radio stores its documents in xScal's folder |
-| [HUDModLoader](https://github.com/GitCrazy-wc/hudmodloader) | The HUD card and the transport relay behind the Pip-Boy buttons |
+| [xScal](https://www.nexusmods.com/fallout76/mods/4183) 0.4.22 or later, installed as `dxgi.dll` beside `Fallout76.exe` | Required. Loads the 76Radio plugin and stores its documents |
+| [HUDModLoader](https://www.nexusmods.com/fallout76/mods/3144) | The HUD card and the transport relay behind the Pip-Boy buttons |
 | The Spotify desktop client | The `Spotify Radio` entry |
-| An internet connection | Internet stations only |
 
-xScal is required. Without it the panel reports the bridge as offline and the mod cannot work. HUDModLoader is required for the HUD card and for the transport relay behind the PREV, PLAY/PAUSE and NEXT buttons; the panel still shows the track and artwork without it. Neither dependency is included in this package.
+xScal is required. It loads `Data\XSCAL\Plugins\76Radio.dll`, and it rejects the DLL unless `76Radio.dll.sig` matches it. Without a loaded plugin the panel reports the bridge as offline and the mod cannot work. HUDModLoader is required for the HUD card and for the transport relay behind the PREV, PLAY/PAUSE and NEXT buttons; the panel still shows the track and artwork without it. Neither dependency is included in this package.
 
 ## Installation
 
@@ -43,7 +46,7 @@ Close Fallout 76 before installing or deploying.
 ### With Vortex
 
 1. Install xScal first and let Vortex deploy it, so `dxgi.dll` sits beside `Fallout76.exe`.
-2. Install the 76Radio zip in Vortex. Double-click the mod to open its details panel, set **Mod Type** to **Engine Injector**, then deploy. The default **Data** type would put the archive under `Data` but also put `version.dll` there, instead of beside `Fallout76.exe`.
+2. Install the 76Radio zip in Vortex and deploy it. Every file in the zip is relative to the game folder, including the plugin and its signature under `Data\XSCAL\Plugins`.
 3. Deploy the mod.
 4. Make the two required ini edits below. Vortex does not edit `Fallout76Custom.ini` or `hudmodloader.ini` for you.
 
@@ -54,7 +57,7 @@ Close Fallout 76 before installing or deploying.
 3. If HUDModLoader is installed, add `76RadioHud` on its own line in `Data\hudmodloader.ini`. HUDModLoader loads only the SWFs named in that file, so without the line the HUD card and the transport relay do not load. `Data\interface\76RadioHud.swf` is already in place from the zip. If you do not use HUDModLoader, skip this step.
 4. Optionally edit `Data\XSCAL\76Radio\76Radio.ini` for logging, polling and UI options. Without changes the module uses its defaults, and an update should not overwrite it.
 5. Edit `Data\modsdata\76radio\stations.json` to add your stations. Keep an existing list when updating.
-6. If a `version.dll` already sits beside `Fallout76.exe`, stop and find out which mod owns it. Two mods cannot share that filename, and 76Radio must be the one that ships it.
+6. If an old 76Radio `version.dll` is still beside `Fallout76.exe`, delete it. The plugin replaced that host, and leaving both in place makes two media hosts fight over the same documents.
 7. Start the game, open the Pip-Boy and select the RADIO tab. `Spotify Radio` appears at the end of the game's stations, above the divider.
 
 A Vortex install also needs the archive list entry and, with HUDModLoader, the `hudmodloader.ini` line. Vortex does not edit the game's ini files.
@@ -76,12 +79,13 @@ The same steps are repeated in `INSTALL.txt` inside the release package.
 ### Checking that it loaded
 
 - Select `Spotify Radio`. The panel shows live data when Spotify is playing, or a clear unavailable state when it is not.
-- Look for `Data\XSCAL\76Radio\76Radio.log` in the game folder. It is rewritten on every launch and names the documents the module reads and writes.
-- If the panel reports the bridge as offline, the module did not load. Check that `version.dll` is beside `Fallout76.exe` and that the game was not already running when it was copied.
+- Look for `Data\XSCAL\76Radio\76Radio.log` in the game folder. Its first line gives the 76Radio version, every line is timestamped, and it is rewritten on every launch and names the documents the module reads and writes.
+- Look for `Data\XSCAL\Plugins\76Radio.dll` and `76Radio.dll.sig`. xScal writes to `xscal.log` beside `Fallout76.exe`; the line naming 76Radio says whether the plugin loaded or why it was rejected.
+- If the panel reports the bridge as offline, the plugin did not load. A missing or stale `.sig`, a plugin built without signing, or a certificate mismatch all appear in `xscal.log` with the reason.
 
 ### Uninstalling
 
-In Vortex, remove the mod and deploy again. For a manual install, delete `Data\76Radio.ba2`, `Data\interface\76RadioHud.swf` and `version.dll`. Either way, remove `76Radio.ba2` from `sResourceArchive2List`, remove the `76RadioHud` line from `Data\hudmodloader.ini`, and optionally delete `Data\XSCAL\76Radio` and `Data\modsdata\76radio`. Removing the command documents in `Data\modsdata` is optional; they are small and the module recreates what it needs.
+In Vortex, remove the mod and deploy again. For a manual install, delete `Data\76Radio.ba2`, `Data\interface\76RadioHud.swf`, `Data\XSCAL\Plugins\76Radio.dll` and `Data\XSCAL\Plugins\76Radio.dll.sig`. Either way, remove `76Radio.ba2` from `sResourceArchive2List`, remove the `76RadioHud` line from `Data\hudmodloader.ini`, and optionally delete `Data\XSCAL\76Radio` and `Data\modsdata\76radio`. Removing the command documents in `Data\modsdata` is optional; they are small and the module recreates what it needs.
 
 ## Configuration
 
@@ -112,7 +116,7 @@ Booleans accept `1/0`, `true/false`, `on/off` and `yes/no`. Out-of-range interva
 
 ### Stations
 
-`Data\modsdata\76radio\stations.json` is a small JSON file:
+Stations are managed by editing `Data\modsdata\76radio\stations.json` in a text editor. The file is a small JSON document with one `stations` list:
 
 ```json
 {
@@ -123,17 +127,69 @@ Booleans accept `1/0`, `true/false`, `on/off` and `yes/no`. Out-of-range interva
 }
 ```
 
-The package ships with this starter list of 20 tested stations. Edit or replace them as you like. Names and addresses are read as text. Entries with no name or no HTTP or HTTPS address are skipped, and the rest of the list still loads. The page and the module re-read the file when it changes, so stations can be edited while the game is running.
+To add a station, copy one `{ ... }` line, change the `name` and `streamurl`, and keep a comma between entries but not after the last one. To edit a station, change its name or address in place. To remove a station, delete its whole line and fix the commas. Save the file; the Pip-Boy list refreshes within a few seconds, even while the game is running, so you do not need to restart. If the file cannot be read, 76Radio keeps the previous list until you fix it.
 
-A station can be started and stopped, but not paused or seeked. A dropped station is retried a few times before the panel reports it stopped. ICY titles appear only when the station sends them; Ogg stations frequently advertise the station name without song metadata.
+The package ships with a starter list of 20 stations. An update never overwrites your `stations.json`, so your own list is kept. The same file is used by 0.1.0, so an existing list works unchanged.
+
+Rules for entries:
+
+- `name` is the text shown in the list, and may contain any characters, including non-English ones. Add the matching language archive from the section above if the font does not show them.
+- `streamurl` must start with `http://` or `https://`. Entries with no name, a bad address or a repeated address are skipped, and the rest of the list still loads. At most 256 stations are read.
+- Quote marks and backslashes inside a name must be escaped as `\"` and `\\`.
+
+Supported station addresses:
+
+- Direct HTTP and HTTPS audio streams that Windows can play, such as MP3, AAC and Ogg.
+- M3U and M3U8 playlists, and PLS playlists. 76Radio opens the playlist, follows redirects and tries each entry in turn. A playlist address can be recognised by its file name, its content type or its contents.
+- HLS playlists (`#EXT-X-` streams) are passed to Windows unchanged. They do not carry ICY metadata.
+- Playlists are limited to 256 KB, 32 entries, two levels of nesting and five redirects, and each request has a short timeout.
+
+### Playback states
+
+The panel shows what the player is really doing:
+
+- `CONNECTING` while the station address is being resolved and opened.
+- `BUFFERING` while Windows is filling its buffer. `PLAYING` is only shown once audio is actually playing.
+- `RECONNECTING` after a dropped stream. 76Radio opens a fresh connection and metadata reader after 2, 4, 8 and 16 seconds, then gives up and shows `FAILED`.
+- `FAILED` when the station cannot be reached or stops responding.
+- `UNSUPPORTED` when the station answers but Windows cannot decode what it sends.
+- `STOPPED` when you stop the station or move to another source.
+
+Looking up a station address happens on a background thread, so selecting a slow or dead station does not freeze the Pip-Boy. Stopping, picking another station, switching to Spotify or closing the game cancels a lookup that is still in progress, and the result of a cancelled lookup is ignored.
+
+A station can be started and stopped, but not paused or seeked. ICY song titles appear only when the station sends them, in UTF-8, Windows-1252 or ISO-8859-1 text. If a station has no name in your list, the station name from its ICY headers is used. Metadata is cleared when a stream stops. Ogg stations frequently advertise the station name without song metadata.
+
+### Windows Media
+
+`Spotify Radio` always controls Spotify and nothing else. A separate `Windows Media` entry below it controls any other player that publishes a Windows media session, such as a browser tab or a desktop music player. Spotify Radio never switches to another application by itself, and Windows Media never starts by itself: it only takes over when you select it.
+
+- The entry appears only while some other application has a media session, and takes that application's name: `Chrome`, `Edge`, `Firefox`, `Brave`, `Opera`, `VLC` or `Media Player` for the common ones, otherwise the application's own name. It reads `Windows Media` only when the name is unknown. The entry is marked `[BETA]` because it depends on what each application publishes to Windows, and some applications, Edge for example, may not be detected. `Spotify Radio` appears only while Spotify is running. Both vanish from the list when there is nothing to control, so the list stays short.
+- Selecting `Windows Media` picks the session Windows currently treats as active, ignoring Spotify, shows its name on the status line as `SOURCE: name >`, and toggles play or pause on it, the same as selecting `Spotify Radio`. Select it while the media is already playing and it will pause, so press PLAY to carry on.
+- With several players open, click the `SOURCE` line to move to the next one. This is a mouse action, and it never selects Spotify or starts or pauses anything.
+- The panel shows the title, artist, album, state and progress that the application reports, and disables previous, next and seeking when the application does not allow them.
+- Selecting `Spotify Radio` again returns to Spotify.
+- If the selected application closes, the panel reports that there is no session instead of switching to another one.
+
+Not every application publishes a media session, and some only do so while playing, so do not assume a particular player will work. Chrome has been tested in-game; Edge did not appear when tried. Many applications publish no artwork, in which case the panel shows the radio wave strip instead.
 
 ## Building from source
 
 The native code and the ActionScript are public so that the module can be inspected and rebuilt rather than trusted as a binary.
 
+The maintainer's signing certificate (`patrickjnr.xcert`) and key are private and are not published, so a build from this repository cannot produce a `76Radio.dll` that xScal will load under the `patrickjnr_76radio` ID. What anyone can do without them:
+
+- Build and run every native library and test with `-DBUILD_XSCAL_PLUGIN=OFF` (`scripts\ci.ps1` does this). This covers the media, stream, playlist, ICY metadata, station catalogue, bridge and channel code.
+- Compile the ActionScript with `scripts\build-hud.ps1` and the Pip-Boy page with `scripts\build.ps1 -SkipNative`.
+- Build the plugin against the xScal SDK without signing. The result is an unsigned DLL that xScal rejects, which is enough to check that the plugin source compiles.
+- Run a fork of the mod by obtaining your own certificate and author prefix from the xScal maintainer, changing `kPluginId`, and signing your own build.
+
+Official releases are signed by the maintainer. To install the mod, use the signed release package rather than building the plugin yourself.
+
 ### Prerequisites
 
 - Windows 10 or 11 x64, Visual Studio 2026 with the Desktop development with C++ workload, and CMake 3.25 or later.
+- The xScal plugin SDK, which is not redistributed here. Ask the xScal maintainer for it, then point `XSCAL_PLUGIN_SDK_DIR` at its `cmake` folder.
+- A signing key and certificate. Generate a key pair with `sdk\bin\xscal-sign.exe keygen dev.key dev.pub`, then ask the xScal maintainer for a certificate; it fixes the mod-author prefix you may use for plugin IDs. The project's `patrickjnr_76radio` ID is signed with PatrickJr's `patrickjnr_` certificate, so a third-party build needs its own author prefix and a matching `kPluginId` in `src\native\plugin\plugin_entry.cpp`. Set `XSCAL_SIGNING_KEY` and `XSCAL_SIGNING_CERTIFICATE` to your key and the returned certificate. Keep the key and certificate out of the repository; `work` is ignored.
 - Python 3 for the archive tools.
 - Java for FFDec.
 - [JPEXS Free Flash Decompiler](https://github.com/jindrapetrik/jpexs-decompiler/releases) with `ffdec-cli.jar` at `tools\vendor\ffdec\ffdec-cli.jar`.
@@ -143,10 +199,10 @@ The native code and the ActionScript are public so that the module can be inspec
 The HUD relay also needs the shared HUDModLoader ActionScript classes. `scripts\build-hud.ps1` downloads them into `src\scaleform\hud` from the HUDModLoader repository if they are absent. They are third-party source, not part of 76Radio, and are not committed here.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -XScalSdk C:\xscal-sdk\sdk\cmake
 ```
 
-That configures and builds with CMake, runs the native tests, compiles `76RadioHud.swf` with Flex, applies `src\scaleform\pipboy` to the extracted radio page with FFDec, checks the recompiled script, packs `dist\76Radio.ba2`, verifies the archive and writes `dist\build-manifest.json`.
+That configures and builds the plugin with CMake, runs the native tests, compiles `76RadioHud.swf` with Flex, applies `src\scaleform\pipboy` to the extracted radio page with FFDec, checks the recompiled script, packs `dist\76Radio.ba2`, verifies the archive and writes `dist\build-manifest.json`. Set `XSCAL_SIGNING_KEY` and `XSCAL_SIGNING_CERTIFICATE` before configuring so the build also writes `76Radio.dll.sig`; without them the DLL is unsigned and xScal will not load it.
 
 The relay can be rebuilt on its own after editing the HUD source:
 
@@ -157,10 +213,12 @@ powershell -ExecutionPolicy Bypass -File scripts\build-hud.ps1
 Direct CMake build and tests:
 
 ```powershell
-cmake --preset msvc-release
+cmake --preset msvc-release -DXSCAL_PLUGIN_SDK_DIR=C:\xscal-sdk\sdk\cmake
 cmake --build --preset msvc-release
 ctest --preset msvc-release
 ```
+
+Pass `-DBUILD_XSCAL_PLUGIN=OFF` to build and test the native libraries without the SDK.
 
 For a package, after a successful build:
 
@@ -168,25 +226,25 @@ For a package, after a successful build:
 powershell -ExecutionPolicy Bypass -File scripts\package.ps1
 ```
 
-The package contains only installed files: the archive, the loose HUD relay, `version.dll`, the settings and station templates, `INSTALL.txt`, `LICENSE.txt`, and `dist\SHA256SUMS.txt`. It refuses to pack an artifact whose hash no longer matches the build manifest.
+The package contains only installed files: the archive, the loose HUD relay, `Data\XSCAL\Plugins\76Radio.dll` with its `.sig`, the settings and station templates, `INSTALL.txt`, `LICENSE.txt`, and `dist\SHA256SUMS.txt`. It refuses to pack an artifact whose hash no longer matches the build manifest, and it refuses to pack an unsigned plugin.
 
-The deployment, verification and uninstall scripts are optional convenience tools for a local installation. They detect the game through Steam, the Bethesda.net install, an Xbox install or a running process, and accept `-GameRoot` when it lives elsewhere. They refuse to overwrite files they do not own, back up what they replace and record what they installed. The root level module is deliberately not installed unless it is named:
+The deployment, verification and uninstall scripts are optional convenience tools for a local installation. They detect the game through Steam, the Bethesda.net install, an Xbox install or a running process, and accept `-GameRoot` when it lives elsewhere. They refuse to overwrite files they do not own, back up what they replace and record what they installed. A deployment refuses to continue when the plugin has no signature:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1 -AllowRootModule version.dll
+powershell -ExecutionPolicy Bypass -File scripts\deploy.ps1
 ```
 
-## Why version.dll?
+## Why an xScal plugin?
 
-`Fallout76.exe` imports `version.dll`, a normal Windows library. Windows resolves that name from the game folder before the system folder, so a module with that name loads at start-up without an injector, a loader change or a hook. Several other modules in the installation import the same name.
+76Radio used to ship a `version.dll` proxy. That is gone. The native module is now an ordinary xScal plugin, `Data\XSCAL\Plugins\76Radio.dll`, loaded by the extender the player already installed. Nothing sits beside `Fallout76.exe` with a Windows library's name, and there is no forwarding code to audit.
 
-76Radio's `version.dll` forwards all seventeen entry points of the system library to the real `C:\Windows\System32\version.dll`, resolved at call time. The proxy answers were compared with the system library call by call, including filled version blocks and language names. The media runtime is separate from the forwarding code, and `DllMain` does no blocking work: it starts one worker and lets the worker read settings and open the documents.
+xScal loads only signed plugins. The build signs the DLL with the project's key and writes `76Radio.dll.sig` next to it; the certificate ties the `patrickjnr_` author prefix used by the `patrickjnr_76radio` plugin ID to that key. A DLL with no signature, or a signature made for a different build, is rejected, and `xscal.log` says which. The signing key and certificate are not published and are not in this repository, so a rebuild needs a key and certificate issued by the xScal maintainer; the plugin SDK is likewise distributed by them and not vendored here.
 
-The source for all of it is in `src\native\surface` and `README-TECHNICAL.md`. Anyone who does not want to run a prebuilt module can compile the same code with the steps above.
+The source for the plugin is in `src\native\plugin` and the media code it hosts is in the other `src\native` folders. `README-TECHNICAL.md` describes the loading, threading and document contract.
 
-The 0.1.0 build has SHA-256 `5E0AEFE6A9B7843615ACE018580F5C2EBB122977CE76BCD175D9619E31A3D495`, and a [VirusTotal report](https://www.virustotal.com/gui/file/5e0aefe6a9b7843615ace018580f5c2ebb122977ce76bcd175d9619e31a3d495) is available for that exact file. VirusTotal reported 0 of 70 vendors flagging it when checked on 30 October 2026. Check that the report hash matches the `version.dll` you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.
+Each release records the plugin's SHA-256 and a VirusTotal report in `dist\virustotal.txt` and in the release notes, because the hash changes with every build. Check that the report hash matches the `76Radio.dll` you downloaded. A scan is not a guarantee of safety, which is why the source is published and can be rebuilt.
 
-A root level module still carries risk that an archive-only interface mod does not. It is client side, it does not read game memory, patch game files, modify networking or bypass a signature check, but it does run inside the game process. Whether to install it is the player's decision.
+A process-resident module still carries risk that an archive-only interface mod does not. It is client side, it does not read game memory, patch game files, modify networking or bypass a signature check, but it does run inside the game process. Whether to install it is the player's decision.
 
 ## Compatibility and limitations
 
@@ -195,10 +253,12 @@ A root level module still carries risk that an archive-only interface mod does n
 - Only one radio source plays at a time. Starting a stream pauses Spotify; starting a game station closes the stream.
 - Internet stations cannot be paused or seeked. The panel's control stops them.
 - ICY metadata depends on the station. Missing metadata is shown as the station name, not invented.
+- The `Windows Media` entry works only with applications that publish a Windows media session, and switching between sessions uses the mouse.
 - Transport buttons and the HUD card need HUDModLoader. The page still shows track and artwork without the relay, but commands have no route.
 - Occasionally the RADIO page is blank the first time the Pip-Boy opens. Closing and reopening the Pip-Boy shows it normally. The cause has not been identified.
-- The mod has no volume control. Use Windows or Spotify.
-- The mod has not been tested against every game update, every HUD or Pip-Boy replacer, or every proxy DLL that might claim `version.dll`. Do not run two mods with that filename.
+- Internet stations follow the game's Pip-Boy Radio volume and master volume sliders. Spotify and other media sessions keep their own volume, which you set in Windows or the player.
+- The mod has not been tested against every game update, every HUD or Pip-Boy replacer, or every xScal release. A plugin built for an older xScal ABI keeps loading in newer releases, but that has not been exercised here.
+- xScal rejects the plugin when the signature is missing or does not match the DLL. Updating the DLL without its `.sig` breaks the mod until both are replaced.
 - Fallout 76 is an online game. The module is client side and does not provide a gameplay advantage, but use of any process-resident module remains the player's choice.
 
 ## Source and contributions
@@ -209,8 +269,8 @@ Third-party tools, shared ActionScript and the origin of the patched page script
 
 ## Credits
 
-- HUDModLoader and its shared HUD ActionScript, by GitCrazy-wc.
-- xScal, by DCHoaxer, which provides the document store.
+- HUDModLoader and its shared HUD ActionScript, by GitCrazy-wc: [Nexus Mods 3144](https://www.nexusmods.com/fallout76/mods/3144).
+- xScal, by DCHoaxer, which loads the plugin and provides the document store: [Nexus Mods 4183](https://www.nexusmods.com/fallout76/mods/4183).
 - JPEXS Free Flash Decompiler and the Apache Flex SDK, used to build the interface files.
 - Fallout 76 and its interface belong to Bethesda Game Studios.
 

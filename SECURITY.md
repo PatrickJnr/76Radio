@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-0.1.0 receives security fixes. Older builds are not supported; rebuild from the current source.
+0.2.0 receives security fixes. Older builds are not supported; rebuild from the current source.
 
 ## Reporting a vulnerability
 
@@ -10,7 +10,7 @@ Use GitHub private vulnerability reporting: open the Security tab of the reposit
 
 Include:
 
-- The 76Radio version and, if possible, the SHA-256 of `version.dll`.
+- The 76Radio version and, if possible, the SHA-256 of `76Radio.dll`.
 - The Windows version and the Fallout 76 version.
 - What the issue allows an attacker to do.
 - Steps to reproduce, using the smallest configuration that shows the problem.
@@ -24,7 +24,8 @@ Acknowledgement is attempted within seven days. This is a volunteer project, so 
 
 In scope:
 
-- The `version.dll` forwarding, exported functions and module lifetime.
+- The xScal plugin entry point, signature handling and worker lifetime.
+- The Scaleform callbacks exposed to the game menus.
 - The document channel and parsing of commands, state and station data.
 - Stream URL handling and ICY metadata parsing.
 - ActionScript command and state handling in the Pip-Boy and HUD movies.

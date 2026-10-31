@@ -2,6 +2,44 @@
 
 All notable changes to 76Radio are recorded here. The first public version is 0.1.0.
 
+## 0.2.0
+
+Moves the native module from a `version.dll` proxy to an xScal plugin. Nothing sits beside
+`Fallout76.exe` any more: xScal loads `Data\XSCAL\Plugins\76Radio.dll` and checks its
+signature before the plugin runs.
+
+### Native module
+
+- Replaces the `version.dll` proxy with a signed xScal plugin.
+- Keeps Spotify controls, artwork, internet stations and settings working as before.
+
+### Internet radio
+
+- Resolves station addresses on a background thread, so selecting a slow or unreachable station no longer holds up the Pip-Boy. Stopping, switching station or source, or closing the game cancels a lookup in progress, and a cancelled lookup can no longer start playback.
+- Reports connecting, buffering, playing, reconnecting, failed and unsupported states from the player, so a station is no longer shown as playing before audio starts.
+- Reconnects with a fresh media source and metadata reader after an interruption, with four attempts spaced 2, 4, 8 and 16 seconds apart.
+- Separates unsupported media formats from network failures.
+- Resolves M3U, M3U8 and PLS station links, with limits on redirects, playlist depth, size and candidates. HLS playlists are handed to Windows unchanged and have no ICY metadata.
+- Reads ICY metadata with case-insensitive field names and UTF-8, Windows-1252 and ISO-8859-1 text, and clears it when a stream stops.
+- Falls back to the ICY station name when a station has no configured name.
+- Follows the game's Pip-Boy Radio and master volume sliders, read from the game's settings file, so internet stations change volume with the rest of the radio.
+- Writes the 76Radio version at the top of the log and a time on every line, and no longer logs the routine theme notice.
+- Reloads `stations.json` while the game runs, keeps the selection, and keeps the previous list when the file is invalid.
+
+### Windows Media
+
+- Adds an entry that controls a non-Spotify media session, separate from `Spotify Radio`. It is named after the detected application, such as Chrome or Edge, and never replaces Spotify control by itself. The entry is marked `[BETA]`, since not every application publishes a media session.
+- Shows the source application on the status line and cycles through the open sessions when it is clicked.
+- Shows `Spotify Radio` only while Spotify is running and the Windows Media entry only while another session exists.
+
+### Tests
+
+- Adds loopback fixture tests for the playlist resolver, the ICY reader and the stream player, including slow, cancelled and replaced lookups.
+
+### Requirements
+
+- xScal 0.4.22 or later.
+
 ## 0.1.0
 
 Initial release.

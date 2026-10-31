@@ -23,6 +23,7 @@ bool CapabilityFor(const PlaybackSnapshot& snapshot, TransportAction action) noe
         return snapshot.canSeek;
     case TransportAction::Stream:
     case TransportAction::StopStream:
+    case TransportAction::SelectMedia:
 
         return true;
     }
@@ -41,6 +42,7 @@ NativeRuntime::NativeRuntime(BackendFactory factory, MediaService::Options optio
     if (backend) {
         backend->SetArtworkPath(options.artworkPath);
         backend->SetStationsPath(options.stationsPath);
+        backend->SetPrefsPath(options.prefsPath);
         service_ = std::make_unique<MediaService>(std::move(backend), options);
     }
 }

@@ -165,6 +165,8 @@ int main() {
     const auto logPath = directory / "76Radio.log";
     report.Check(radio76::AppendLogLine(logPath, "first line", 1024), "a log line is appended");
     report.Check(Contains(ReadDocument(logPath), "first line\r\n"), "the log line ends with CRLF");
+    const std::string firstLog = ReadDocument(logPath);
+    report.Check(firstLog.size() > 14 && firstLog[2] == ':' && firstLog[5] == ':' && firstLog[8] == '.' && firstLog.substr(12, 2) == "  ", "the log line starts with a timestamp");
 
     for (int index = 0; index < 40; ++index) {
         radio76::AppendLogLine(logPath, std::string(60, 'x'), 1024);

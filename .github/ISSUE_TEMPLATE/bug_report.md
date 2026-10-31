@@ -26,7 +26,8 @@ What did you expect instead?
 - 76Radio version:
 - xScal version:
 - HUDModLoader version, if used:
-- `version.dll` installed beside `Fallout76.exe`: yes or no
+- `Data\XSCAL\Plugins\76Radio.dll` and `76Radio.dll.sig` present: yes or no
+- The 76Radio line from `xscal.log`, if the plugin was rejected:
 - Windows version:
 - Display resolution and aspect ratio:
 

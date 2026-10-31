@@ -1,12 +1,18 @@
+#include "radio76/game_audio.h"
+#include "radio76/icy_metadata.h"
 #include "radio76/icy_metadata.h"
 #include "radio76/media_service.h"
 #include "radio76/media_types.h"
 #include "radio76/scaleform_payload.h"
 #include "radio76/stream_catalog.h"
+#include "radio76/stream_resolver.h"
 
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -311,6 +317,25 @@ void TestTransportCommands() {
     service.Stop();
 }
 
+void TestSelectMediaWithoutSession() {
+    auto backend = std::make_unique<FakeBackend>();
+    FakeBackend* raw = backend.get();
+    PlaybackSnapshot idle;
+    idle.sessionAvailable = false;
+    idle.state = PlaybackState::Unavailable;
+    raw->SetSnapshot(idle);
+    MediaService service(std::move(backend), FastOptions());
+    service.Start();
+    TransportCommand select;
+    select.action = TransportAction::SelectMedia;
+    select.mediaSource = "auto";
+    CHECK(service.Submit(select, std::chrono::milliseconds(2000)) == CommandStatus::Accepted);
+    CHECK(raw->Executed().size() == 1);
+    CHECK(service.Submit(TransportCommand{TransportAction::Toggle, 0}, std::chrono::milliseconds(2000)) == CommandStatus::Rejected);
+    CHECK(raw->Executed().size() == 1);
+    service.Stop();
+}
+
 void TestSessionLossAndReconnect() {
     auto backend = std::make_unique<FakeBackend>();
     FakeBackend* raw = backend.get();
@@ -568,7 +593,7 @@ void TestPayloadRoundTrip() {
             ++lines;
         }
     }
-    CHECK(lines == 19);
+    CHECK(lines == 22);
     const auto fields = ParsePayload(payload);
     CHECK(fields.at("stream") == "0");
     CHECK(fields.at("state") == "playing");
@@ -594,6 +619,14 @@ void TestCommandParsing() {
     CHECK(seek->action == TransportAction::Seek);
     CHECK(seek->positionMs == 12345);
 
+    const auto spotifyMedia = radio76::ParseCommandPayload("media|spotify");
+    CHECK(spotifyMedia.has_value() && spotifyMedia->action == radio76::TransportAction::SelectMedia);
+    CHECK(spotifyMedia.has_value() && spotifyMedia->toggleAfterSelect);
+    const auto autoMedia = radio76::ParseCommandPayload("media|auto");
+    CHECK(autoMedia.has_value() && autoMedia->mediaSource == "auto" && autoMedia->toggleAfterSelect);
+    const auto nextMedia = radio76::ParseCommandPayload("media|next");
+    CHECK(nextMedia.has_value() && nextMedia->mediaSource == "next" && !nextMedia->toggleAfterSelect);
+    CHECK(!radio76::ParseCommandPayload("media|chrome").has_value());
     CHECK(!radio76::ParseCommandPayload("").has_value());
     CHECK(!radio76::ParseCommandPayload("seek:").has_value());
     CHECK(!radio76::ParseCommandPayload("seek:-1").has_value());
@@ -637,6 +670,94 @@ void TestStreamCatalog() {
 
     CHECK(radio76::ParseStationsDocument(R"({"probe":1,"build":"0.3.0"})").empty());
     CHECK(radio76::ParseStationsDocument("not json").empty());
+
+    const auto escaped = radio76::ParseStationsDocument(
+        R"({"stations":[{"name":"Quote \" Radio \\ \u00e9","streamurl":"https:\/\/example.com\/live"},{"name":"Duplicate","streamurl":"HTTPS://EXAMPLE.COM/LIVE"},{"name":"Local","streamurl":"file:///radio"},{"name":12,"streamurl":"https://example.com/bad"}]})");
+    CHECK(escaped.size() == 1);
+    if (escaped.size() == 1) {
+        CHECK(escaped[0].name == "Quote \" Radio \\ \xC3\xA9");
+        CHECK(escaped[0].url == "https://example.com/live");
+    }
+    CHECK(radio76::ParseStationsDocument(R"({"stations":[]})").empty());
+    CHECK(radio76::ParseStationsDocument(R"({"stations":[)").empty());
+}
+
+void WriteCatalogFile(const std::filesystem::path& path, const std::string& text, int minutes) {
+    {
+        std::ofstream file{path, std::ios::binary | std::ios::trunc};
+        file << text;
+    }
+    std::filesystem::last_write_time(
+        path, std::filesystem::file_time_type::clock::now() + std::chrono::minutes(minutes));
+}
+
+void TestStationCatalogReload() {
+    const auto directory = std::filesystem::temp_directory_path() / "radio76_catalog_test";
+    std::filesystem::create_directories(directory);
+    const auto path = directory / "stations.json";
+    const std::string alpha = "https://example.com/alpha";
+    const std::string beta = "https://example.com/beta";
+
+    radio76::StationCatalog catalog{path};
+    CHECK(catalog.ConfiguredTitleFor(alpha).empty());
+    CHECK(catalog.TitleFor(alpha) == "example.com");
+
+    WriteCatalogFile(path, R"({"stations":[{"name":"Alpha","streamurl":"https://example.com/alpha"}]})", 1);
+    CHECK(catalog.ConfiguredTitleFor(alpha) == "Alpha");
+    CHECK(catalog.ConfiguredTitleFor(beta).empty());
+
+    WriteCatalogFile(path, R"({"stations":[{"name":"Alpha Renamed","streamurl":"https://example.com/alpha"},{"name":"Beta","streamurl":"https://example.com/beta"}]})", 2);
+    CHECK(catalog.ConfiguredTitleFor(alpha) == "Alpha Renamed");
+    CHECK(catalog.ConfiguredTitleFor(beta) == "Beta");
+
+    WriteCatalogFile(path, R"({"stations":[{"name":"Alpha Renamed","streamurl":"https://example.com/al)", 3);
+    CHECK(catalog.ConfiguredTitleFor(alpha) == "Alpha Renamed");
+    CHECK(catalog.ConfiguredTitleFor(beta) == "Beta");
+
+    WriteCatalogFile(path, "", 4);
+    CHECK(catalog.ConfiguredTitleFor(beta) == "Beta");
+
+    WriteCatalogFile(path, R"({"stations":[{"name":"Beta","streamurl":"https://example.com/beta"}]})", 5);
+    CHECK(catalog.ConfiguredTitleFor(alpha).empty());
+    CHECK(catalog.TitleFor(alpha) == "example.com");
+    CHECK(catalog.ConfiguredTitleFor(beta) == "Beta");
+
+    std::filesystem::remove_all(directory);
+}
+
+void TestPipboyRadioVolume() {
+    const auto directory = std::filesystem::temp_directory_path() / "radio76_volume_test";
+    std::filesystem::create_directories(directory);
+    const auto path = directory / "Fallout76Prefs.ini";
+    const std::string real =
+        "[Display]\nfVal6=0.1\n\n[AudioMenu]\nfVal7=1.0000\nuID7=0\nfVal6=0.2041\nuID6=138006\nfVal5=0.7500\n"
+        "uID5=1007612\nfVal4=0.4082\nuID4=94881\nfAudioMasterVolume=1.0000\n\n[Survival]\nfVal6=0.9\n";
+    WriteCatalogFile(path, real, 0);
+    auto volume = radio76::ReadPipboyRadioVolume(path);
+    CHECK(volume.has_value() && std::abs(*volume - 0.2041) < 0.0001);
+
+    WriteCatalogFile(path, "[AudioMenu]\r\nuID2 = 138006\r\nfVal2 = 0.5\r\nfAudioMasterVolume=0.5\r\n", 1);
+    volume = radio76::ReadPipboyRadioVolume(path);
+    CHECK(volume.has_value() && std::abs(*volume - 0.25) < 0.0001);
+
+    WriteCatalogFile(path, "[AudioMenu]\nuID1=138006\nfVal1=7\nfAudioMasterVolume=3\n", 2);
+    volume = radio76::ReadPipboyRadioVolume(path);
+    CHECK(volume.has_value() && std::abs(*volume - 1.0) < 0.0001);
+
+    WriteCatalogFile(path, "[AudioMenu]\nuID1=138006\nfVal1=0\n", 3);
+    volume = radio76::ReadPipboyRadioVolume(path);
+    CHECK(volume.has_value() && *volume == 0.0);
+
+    WriteCatalogFile(path, "[AudioMenu]\nuID1=5\nfVal1=0.3\n", 4);
+    CHECK(!radio76::ReadPipboyRadioVolume(path).has_value());
+    WriteCatalogFile(path, "[AudioMenu]\nuID1=138006\nfVal1=abc\n", 5);
+    CHECK(!radio76::ReadPipboyRadioVolume(path).has_value());
+    WriteCatalogFile(path, "[Other]\nuID1=138006\nfVal1=0.3\n", 6);
+    CHECK(!radio76::ReadPipboyRadioVolume(path).has_value());
+    WriteCatalogFile(path, "", 7);
+    CHECK(!radio76::ReadPipboyRadioVolume(path).has_value());
+    CHECK(!radio76::ReadPipboyRadioVolume(directory / "missing.ini").has_value());
+    std::filesystem::remove_all(directory);
 }
 
 void TestIcyMetadata() {
@@ -647,6 +768,8 @@ void TestIcyMetadata() {
     CHECK(radio76::ParseIcyStreamTitle("StreamTitle='Rose's Raiders - Song';") == "Rose's Raiders - Song");
     CHECK(radio76::ParseIcyStreamTitle("StreamTitle=' Makyo - Be Where Now ';") == "Makyo - Be Where Now");
     CHECK(radio76::ParseIcyStreamTitle("StreamTitle='';").empty());
+    CHECK(radio76::ParseIcyStreamTitle("sTrEaMtItLe=\"Björk - Jóga\";") == "Björk - Jóga");
+    CHECK(radio76::ParseIcyStreamTitle(std::string("STREAMTITLE='Caf\xE9 - D\xE9j\xE0 Vu';")) == "Caf\xC3\xA9 - D\xC3\xA9j\xC3\xA0 Vu");
     CHECK(radio76::ParseIcyStreamTitle("no title here").empty());
     CHECK(radio76::ParseIcyStreamTitle("StreamTitle='unterminated").empty());
     CHECK(radio76::ParseIcyStreamTitle(std::string("StreamTitle='Song';") + std::string(24, '\0')) == "Song");
@@ -654,9 +777,43 @@ void TestIcyMetadata() {
     CHECK(radio76::ParseIcyStationName("").empty());
 }
 
+void TestPlaylists() {
+    CHECK(radio76::DetectPlaylistFormat("https://example.com/list.m3u", "", "") == radio76::PlaylistFormat::M3u);
+    CHECK(radio76::DetectPlaylistFormat("https://example.com/radio", "audio/x-scpls", "") == radio76::PlaylistFormat::Pls);
+    CHECK(radio76::DetectPlaylistFormat("https://example.com/live.m3u8", "", "#EXTM3U\n#EXT-X-TARGETDURATION:6") == radio76::PlaylistFormat::Hls);
+    CHECK(radio76::DetectPlaylistFormat("https://example.com/live.mp3", "audio/mpeg", "") == radio76::PlaylistFormat::None);
+
+    const auto m3u = radio76::ParsePlaylist(
+        "#EXTM3U\n/live.mp3\nrelative.aac\nhttps://other.example/radio\n/live.mp3\n",
+        radio76::PlaylistFormat::M3u,
+        "https://example.com/lists/stations.m3u");
+    CHECK(m3u.size() == 3);
+    if (m3u.size() == 3) {
+        CHECK(m3u[0] == "https://example.com/live.mp3");
+        CHECK(m3u[1] == "https://example.com/lists/relative.aac");
+        CHECK(m3u[2] == "https://other.example/radio");
+    }
+
+    const auto pls = radio76::ParsePlaylist(
+        "[playlist]\nNumberOfEntries=2\nFile1=https://example.com/one\nTitle1=One\nFile2=/two\n",
+        radio76::PlaylistFormat::Pls,
+        "https://radio.example/list.pls");
+    CHECK(pls.size() == 2);
+    if (pls.size() == 2) {
+        CHECK(pls[0] == "https://example.com/one");
+        CHECK(pls[1] == "https://radio.example/two");
+    }
+    CHECK(radio76::ParsePlaylist("#EXTM3U\n", radio76::PlaylistFormat::M3u, "https://example.com/list").empty());
+}
+
 void TestStateNames() {
     CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Playing)) == "playing");
     CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Paused)) == "paused");
+    CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Connecting)) == "connecting");
+    CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Buffering)) == "buffering");
+    CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Reconnecting)) == "reconnecting");
+    CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Failed)) == "failed");
+    CHECK(std::string(radio76::PlaybackStateName(PlaybackState::Unsupported)) == "unsupported");
     CHECK(std::string(radio76::TransportActionName(TransportAction::Previous)) == "previous");
     TransportAction action = TransportAction::Seek;
     CHECK(radio76::ParseTransportAction("next", action));
@@ -670,6 +827,7 @@ int main() {
     TestDiscoveryAndMetadata();
     TestSpotifyNotRunning();
     TestTransportCommands();
+    TestSelectMediaWithoutSession();
     TestSessionLossAndReconnect();
     TestBackendErrorRecovery();
     TestShutdown();
@@ -682,7 +840,10 @@ int main() {
     TestPayloadRoundTrip();
     TestCommandParsing();
     TestStreamCatalog();
+    TestStationCatalogReload();
+    TestPipboyRadioVolume();
     TestIcyMetadata();
+    TestPlaylists();
     TestStateNames();
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;

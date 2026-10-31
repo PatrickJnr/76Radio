@@ -224,6 +224,12 @@ void TestStatePayload() {
 
     CHECK(stationDocument.find("\"station\":\"Classic FM\"") != std::string::npos);
     CHECK(radio76::bridge::BuildStateDocument(&playing).find("\"station\":\"\"") != std::string::npos);
+    PlaybackSnapshot withBrowser = playing;
+    withBrowser.genericAvailable = true;
+    withBrowser.genericSource = "chrome.exe";
+    CHECK(radio76::bridge::BuildStateDocument(&withBrowser).find("\"genericAvailable\":1") != std::string::npos);
+    CHECK(radio76::bridge::BuildStateDocument(&withBrowser).find("\"genericSource\":\"chrome.exe\"") != std::string::npos);
+    CHECK(radio76::bridge::BuildStateDocument(&playing).find("\"genericAvailable\":0") != std::string::npos);
     const auto spotifyFields = ParseFields(BuildStatePayload(&playing));
     CHECK(spotifyFields.at("stream") == "0");
     CHECK(BridgeDocumentStreamFlag(radio76::bridge::BuildStateDocument(&playing)) == 0);
@@ -321,6 +327,23 @@ void TestCapabilityGating() {
     CHECK(runtime.LastError().find("unsupported") == 0);
 }
 
+void TestMediaSourceWithoutSession() {
+    auto backend = std::make_unique<MockMediaBackend>();
+    MockMediaBackend* raw = backend.get();
+    PlaybackSnapshot idle;
+    idle.sessionAvailable = false;
+    idle.state = PlaybackState::Unavailable;
+    raw->SetSnapshot(idle);
+    NativeRuntime runtime([&]() { return std::move(backend); },
+                          MediaService::Options{std::chrono::milliseconds(10), 8});
+    CHECK(runtime.Start());
+    CHECK(runtime.HandleCommand("media|auto").accepted());
+    CHECK(WaitForCommandCount(*raw, 1, std::chrono::milliseconds(1000)));
+    CHECK(runtime.HandleCommand("media|spotify").accepted());
+    CHECK(runtime.HandleCommand("media|next").accepted());
+    runtime.Stop();
+}
+
 void TestQueueRejection() {
     auto backend = std::make_unique<MockMediaBackend>();
     MockMediaBackend* raw = backend.get();
@@ -382,6 +405,7 @@ int main() {
     TestRuntimeCommands();
     TestBootstrapState();
     TestCapabilityGating();
+    TestMediaSourceWithoutSession();
     TestQueueRejection();
     TestRuntimeLifecycle();
     TestRuntimeWithoutBackend();

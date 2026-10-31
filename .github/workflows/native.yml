@@ -16,7 +16,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
       - name: Configure
-        run: cmake -S . -B build/ci -A x64
+        run: cmake -S . -B build/ci -A x64 -DBUILD_XSCAL_PLUGIN=OFF
       - name: Build
         run: cmake --build build/ci --config Release
       - name: Test

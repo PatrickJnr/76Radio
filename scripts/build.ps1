@@ -1,5 +1,6 @@
 param(
     [string]$GameRoot,
+    [string]$XScalSdk = $env:XSCAL_PLUGIN_SDK_DIR,
     [switch]$SkipNative,
     [switch]$SkipSwf
 )
@@ -12,11 +13,24 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $workRoot = Join-Path $repoRoot 'work'
 $distRoot = Join-Path $repoRoot 'dist'
 $ffdecJar = Join-Path $repoRoot 'tools\vendor\ffdec\ffdec-cli.jar'
-$version = '0.1.0'
+$version = '0.2.0'
 
 function Write-Step {
     param([string]$Text)
     Write-Host "== $Text" -ForegroundColor Cyan
+}
+
+function Invoke-NativeAllowStderr {
+    param([scriptblock]$Command)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& $Command 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    [pscustomobject]@{ Output = $output; ExitCode = $code }
 }
 
 Write-Step 'Preparing directories'
@@ -31,26 +45,32 @@ $manifest = [ordered]@{
     version = $version
     builtAt = (Get-Date).ToUniversalTime().ToString('o')
     artifacts = @()
-    surfaceModuleStatus = 'not-built'
+    pluginStatus = 'not-built'
 }
 
 Write-Step 'Building native targets'
 if (-not $SkipNative) {
+    if (-not $XScalSdk) {
+        throw 'The xScal plugin SDK is required. Download it, then pass -XScalSdk <sdk>\cmake or set XSCAL_PLUGIN_SDK_DIR.'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $XScalSdk 'xScalPluginConfig.cmake'))) {
+        throw "No xScalPluginConfig.cmake in $XScalSdk. Point -XScalSdk at the SDK cmake folder."
+    }
     Push-Location $repoRoot
     try {
-        $configure = & cmake --preset msvc-release 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            $configure | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+        $configure = Invoke-NativeAllowStderr { cmake --preset msvc-release "-DXSCAL_PLUGIN_SDK_DIR=$XScalSdk" }
+        if ($configure.ExitCode -ne 0) {
+            $configure.Output | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
             throw 'CMake configure failed'
         }
-        $build = & cmake --build --preset msvc-release 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            $build | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+        $build = Invoke-NativeAllowStderr { cmake --build --preset msvc-release }
+        if ($build.ExitCode -ne 0) {
+            $build.Output | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
             throw 'Native build failed'
         }
-        $tests = & ctest --preset msvc-release 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            $tests | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+        $tests = Invoke-NativeAllowStderr { ctest --preset msvc-release }
+        if ($tests.ExitCode -ne 0) {
+            $tests.Output | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
             throw 'Native tests failed'
         }
         Write-Host '  native build and tests passed'
@@ -85,15 +105,22 @@ if (-not $SkipSwf) {
         Set-Content -LiteralPath $readme -Value 'Extracted from the locally installed Fallout 76 interface archive for build input only. Not redistributed.' -Encoding UTF8
     }
     $patchedSwf = Join-Path $repoRoot 'dist\ba2\interface\newpipboy_radiopage.swf'
-    & java -jar $ffdecJar -importScript $sourceSwf $patchedSwf (Join-Path $repoRoot 'src\scaleform\pipboy') 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $patchedSwf)) {
+    $import = Invoke-NativeAllowStderr {
+        & java -jar $ffdecJar -importScript $sourceSwf $patchedSwf (Join-Path $repoRoot 'src\scaleform\pipboy')
+    }
+    if ($import.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $patchedSwf)) {
+        $import.Output | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
         throw 'ActionScript recompilation failed'
     }
     $verifyRoot = Join-Path $workRoot 'verify_release'
     if (Test-Path -LiteralPath $verifyRoot) {
         Remove-Item -LiteralPath $verifyRoot -Recurse -Force
     }
-    & java -jar $ffdecJar -export script $verifyRoot $patchedSwf 2>&1 | Out-Null
+    $export = Invoke-NativeAllowStderr { & java -jar $ffdecJar -export script $verifyRoot $patchedSwf }
+    if ($export.ExitCode -ne 0) {
+        $export.Output | Select-Object -Last 20 | ForEach-Object { Write-Host $_ }
+        throw 'Recompiled script export failed'
+    }
     $compiledScript = Join-Path $verifyRoot 'scripts\NewPipboy_RadioPage.as'
     if (-not (Test-Path -LiteralPath $compiledScript)) {
         throw 'Recompiled script verification failed'
@@ -138,19 +165,36 @@ $manifest.artifacts += [pscustomobject]@{
     sha256 = (Get-FileHash -LiteralPath $hudLoosePath -Algorithm SHA256).Hash
 }
 
-$nativeBin = Join-Path $repoRoot 'build\msvc-release\bin\Release'
-$surfaceModulePath = Join-Path $nativeBin 'version.dll'
-if (Test-Path -LiteralPath $surfaceModulePath) {
-    Copy-Item -LiteralPath $surfaceModulePath -Destination (Join-Path $distRoot 'version.dll') -Force
-    $manifest.artifacts += [pscustomobject]@{
-        kind = 'surface-module'
-        name = 'version.dll'
-        relativeTarget = 'version.dll'
-        sha256 = (Get-FileHash -LiteralPath (Join-Path $distRoot 'version.dll') -Algorithm SHA256).Hash
+Write-Step 'Collecting the xScal plugin'
+$pluginOutput = Join-Path $repoRoot 'build\msvc-release\Release\Data\XSCAL\Plugins'
+$pluginPath = Join-Path $pluginOutput '76Radio.dll'
+if (-not $SkipNative) {
+    if (-not (Test-Path -LiteralPath $pluginPath)) {
+        throw "The xScal plugin was not built at $pluginPath"
     }
-    $manifest.surfaceModuleStatus = 'built'
-} else {
-    $manifest.surfaceModuleStatus = 'not-built'
+    $distPlugin = Join-Path $distRoot '76Radio.dll'
+    Copy-Item -LiteralPath $pluginPath -Destination $distPlugin -Force
+    $manifest.artifacts += [pscustomobject]@{
+        kind = 'xscal-plugin'
+        name = '76Radio.dll'
+        relativeTarget = 'Data\XSCAL\Plugins\76Radio.dll'
+        sha256 = (Get-FileHash -LiteralPath $distPlugin -Algorithm SHA256).Hash
+    }
+    $signaturePath = $pluginPath + '.sig'
+    if (Test-Path -LiteralPath $signaturePath) {
+        $distSignature = Join-Path $distRoot '76Radio.dll.sig'
+        Copy-Item -LiteralPath $signaturePath -Destination $distSignature -Force
+        $manifest.artifacts += [pscustomobject]@{
+            kind = 'xscal-plugin-signature'
+            name = '76Radio.dll.sig'
+            relativeTarget = 'Data\XSCAL\Plugins\76Radio.dll.sig'
+            sha256 = (Get-FileHash -LiteralPath $distSignature -Algorithm SHA256).Hash
+        }
+        $manifest.pluginStatus = 'signed'
+    } else {
+        $manifest.pluginStatus = 'unsigned'
+        Write-Host '  no signature file: xScal will reject the plugin until it is signed' -ForegroundColor Yellow
+    }
 }
 
 $settingsTemplate = Join-Path $repoRoot 'config\76Radio.ini'
@@ -173,6 +217,8 @@ Write-Host ''
 Write-Host 'Build complete' -ForegroundColor Green
 Write-Host "  archive      $ba2Path"
 Write-Host "  manifest     $manifestPath"
-if ($manifest.surfaceModuleStatus -ne 'built') {
-    Write-Host '  surface module not built' -ForegroundColor Yellow
+if ($manifest.pluginStatus -eq 'unsigned') {
+    Write-Host '  plugin built unsigned: set XSCAL_SIGNING_KEY and XSCAL_SIGNING_CERTIFICATE, then rebuild' -ForegroundColor Yellow
+} elseif ($manifest.pluginStatus -ne 'signed') {
+    Write-Host '  plugin not built' -ForegroundColor Yellow
 }

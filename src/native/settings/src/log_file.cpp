@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstdio>
 #include <string>
 #include <system_error>
 
@@ -52,11 +53,17 @@ bool ResetLogFile(const std::filesystem::path& logFile) {
 
 bool AppendLogLine(
     const std::filesystem::path& logFile,
-    std::string_view line,
+    std::string_view text,
     std::size_t maxBytes) {
     if (logFile.empty()) {
         return false;
     }
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    char stamp[24];
+    std::snprintf(stamp, sizeof(stamp), "%02u:%02u:%02u.%03u  ",
+        now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+    const std::string line = std::string{stamp} + std::string{text};
     std::error_code error;
     const auto parent = logFile.parent_path();
     if (!parent.empty() && !std::filesystem::exists(parent, error)) {
@@ -79,13 +86,12 @@ bool AppendLogLine(
     if (file == INVALID_HANDLE_VALUE) {
         return false;
     }
+    const std::string entry = line + "\r\n";
     DWORD written = 0;
-    const BOOL lineOk = WriteFile(
-        file, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
-    DWORD newlineWritten = 0;
-    const BOOL newlineOk = WriteFile(file, "\r\n", 2, &newlineWritten, nullptr);
+    const BOOL ok = WriteFile(
+        file, entry.data(), static_cast<DWORD>(entry.size()), &written, nullptr);
     CloseHandle(file);
-    return lineOk != FALSE && newlineOk != FALSE && written == line.size() && newlineWritten == 2;
+    return ok != FALSE && written == entry.size();
 }
 
 }

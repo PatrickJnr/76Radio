@@ -21,6 +21,10 @@ tools/vendor/
 *.swf
 *.ba2
 *.zip
+xScal-SDK/
+xscal-sdk/
+*.key
+*.xcert
 .freebuff/
 AGENTS.md
 CLAUDE.md

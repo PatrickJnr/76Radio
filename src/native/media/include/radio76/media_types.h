@@ -12,9 +12,14 @@ enum class PlaybackState {
     Closed,
     Opened,
     Changing,
+    Connecting,
+    Buffering,
+    Reconnecting,
     Playing,
     Paused,
-    Stopped
+    Stopped,
+    Failed,
+    Unsupported
 };
 
 enum class TransportAction {
@@ -26,8 +31,8 @@ enum class TransportAction {
     Seek,
 
     Stream,
-
-    StopStream
+    StopStream,
+    SelectMedia
 };
 
 enum class CommandStatus {
@@ -46,6 +51,9 @@ struct TrackMetadata {
 
 struct PlaybackSnapshot {
     bool spotifyRunning = false;
+    bool genericMedia = false;
+    bool genericAvailable = false;
+    std::string genericSource;
     bool sessionAvailable = false;
     bool backendError = false;
     PlaybackState state = PlaybackState::Unavailable;
@@ -70,6 +78,8 @@ struct TransportCommand {
     TransportAction action = TransportAction::Toggle;
     std::int64_t positionMs = 0;
     std::string streamUrl;
+    std::string mediaSource;
+    bool toggleAfterSelect = false;
 };
 
 const char* PlaybackStateName(PlaybackState state) noexcept;

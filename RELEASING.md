@@ -5,8 +5,9 @@ This is the checklist for a release build. It exists so the package, checksums a
 ## Before building
 
 1. Bump the version in `CMakeLists.txt` (`project(76Radio VERSION ...)`) and in the `$version` value at the top of `scripts\build.ps1`. The two must match.
-2. Add the release to `CHANGELOG.md` under the new version. Do not rewrite the 0.1.0 entry.
-3. Confirm that `config\76Radio.ini` and `config\stations.example.json` still match the parser and the documentation.
+2. Confirm that `XSCAL_SIGNING_KEY` and `XSCAL_SIGNING_CERTIFICATE` point at the signing key and certificate, and that the certificate covers the `patrickjnr_` mod-author prefix used by the `patrickjnr_76radio` plugin ID. The package step refuses an unsigned plugin.
+3. Add the release to `CHANGELOG.md` under the new version. Do not rewrite the 0.1.0 entry.
+4. Confirm that `config\76Radio.ini` and `config\stations.example.json` still match the parser and the documentation.
 
 ## Build and package
 
@@ -16,11 +17,11 @@ From the repository root:
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 ```
 
-The script runs `build.ps1` (CMake configure and build, native tests, HUD relay, FFDec patch, BA2 pack), then `package.ps1` (staged files, hashes checked against the build manifest, zip, `dist\SHA256SUMS.txt`). It finishes by writing `dist\virustotal.txt`.
+The script runs `build.ps1` (CMake configure and build with the xScal SDK, native tests, HUD relay, FFDec patch, BA2 pack), then `package.ps1` (staged files, hashes checked against the build manifest, zip, `dist\SHA256SUMS.txt`). It finishes by writing `dist\virustotal.txt`.
 
 ## VirusTotal
 
-Every release uploads the shipped `version.dll`, because the hash changes with every build. Two builds from the same source are not byte identical, so a report from an earlier version tells a user nothing about the file they downloaded.
+Every release uploads the shipped `76Radio.dll`, because the hash changes with every build. Two builds from the same source are not byte identical, so a report from an earlier version tells a user nothing about the file they downloaded.
 
 ### Where the key lives
 
@@ -52,7 +53,7 @@ Manual upload, recommended for the free account:
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 ```
 
-That builds and packages, writes the hash and both text snippets to `dist\virustotal.txt`, and does not touch the API. Upload `dist\version.dll` through the website, then confirm that the report hash matches the hash in the file.
+That builds and packages, writes the hash and both text snippets to `dist\virustotal.txt`, and does not touch the API. Upload `dist\76Radio.dll` through the website, then confirm that the report hash matches the hash in the file.
 
 One API request, using the stored key:
 
@@ -60,7 +61,7 @@ One API request, using the stored key:
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -UploadToVirusTotal
 ```
 
-That sends `dist\version.dll` once and prints the report URL. It does not wait for the analysis, because that needs more lookups. Open the report in a browser about a minute later and read the detection counts there.
+That sends `dist\76Radio.dll` once and prints the report URL. It does not wait for the analysis, because that needs more lookups. Open the report in a browser about a minute later and read the detection counts there.
 
 Do not describe a build as clean because the upload finished. Read the report. A detection needs a false positive report to the vendor before release, and a report with any malicious detection blocks the release until it is explained.
 
@@ -74,7 +75,7 @@ Do not describe a build as clean because the upload finished. Read the report. A
 2. Replace the matching paragraph in `release\nexus\description.bbcode` with the Nexus paragraph.
 3. Add the observed detection count and the date checked to both paragraphs, for example `VirusTotal reported 0 of 70 vendors flagging it when checked on 30 October 2026.` A count without a date ages badly.
 4. Update the version and the download name anywhere the README or the Nexus page names the package.
-5. Check that the SHA-256 in the text matches `dist\version.dll` and not an earlier build.
+5. Check that the SHA-256 in the text matches `dist\76Radio.dll` and not an earlier build.
 6. Add or update `release\nexus\changelog-<version>.txt` with a condensed, one-entry-per-line changelog for the Nexus version field. The repository `CHANGELOG.md` is deliberately more detailed.
 
 ## Verify the package
@@ -90,14 +91,15 @@ Extract `dist\76Radio-<version>.zip` to a temporary folder and confirm the layou
 ```text
 Data\76Radio.ba2
 Data\interface\76RadioHud.swf
+Data\XSCAL\Plugins\76Radio.dll
+Data\XSCAL\Plugins\76Radio.dll.sig
 Data\XSCAL\76Radio\76Radio.ini
 Data\modsdata\76radio\stations.json
-version.dll
 INSTALL.txt
 LICENSE.txt
 ```
 
-`dist\SHA256SUMS.txt` lists the archive, the relay, the module and the zip. Publish it beside the package.
+`dist\SHA256SUMS.txt` lists the archive, the relay, the plugin, its signature and the zip. Publish it beside the package.
 
 ## Checking CI locally
 
@@ -125,7 +127,7 @@ To test the template without creating a tag, run the `Release draft` workflow fr
 
 A fully automatic build would need a self-hosted Windows runner with Fallout 76 and the build tools installed. The hosted workflow deliberately stops at validation.
 
-The 0.1.0 history was created as a single root commit and the tag points at it. Later releases add commits normally; do not rewrite published history.
+The 0.1.0 history was created as a single root commit and the tag points at it, and 0.2.0 is prepared the same way. Do not rewrite history once a release has been published.
 
 ## Publish
 

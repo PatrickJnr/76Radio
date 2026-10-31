@@ -5,7 +5,7 @@ $buildRoot = Join-Path $repoRoot 'build\ci'
 
 Push-Location $repoRoot
 try {
-    cmake -S . -B $buildRoot -A x64
+    cmake -S . -B $buildRoot -A x64 -DBUILD_XSCAL_PLUGIN=OFF
     if ($LASTEXITCODE -ne 0) {
         throw 'CMake configure failed'
     }

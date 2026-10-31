@@ -43,12 +43,22 @@ const char* PlaybackStateName(PlaybackState state) noexcept {
         return "opened";
     case PlaybackState::Changing:
         return "changing";
+    case PlaybackState::Connecting:
+        return "connecting";
+    case PlaybackState::Buffering:
+        return "buffering";
+    case PlaybackState::Reconnecting:
+        return "reconnecting";
     case PlaybackState::Playing:
         return "playing";
     case PlaybackState::Paused:
         return "paused";
     case PlaybackState::Stopped:
         return "stopped";
+    case PlaybackState::Failed:
+        return "failed";
+    case PlaybackState::Unsupported:
+        return "unsupported";
     }
     return "unavailable";
 }
@@ -71,6 +81,8 @@ const char* TransportActionName(TransportAction action) noexcept {
         return "stream";
     case TransportAction::StopStream:
         return "streamstop";
+    case TransportAction::SelectMedia:
+        return "media";
     }
     return "toggle";
 }
@@ -109,6 +121,9 @@ bool ParseTransportAction(std::string_view text, TransportAction& action) noexce
 
 bool SnapshotsEquivalent(const PlaybackSnapshot& left, const PlaybackSnapshot& right) noexcept {
     return left.spotifyRunning == right.spotifyRunning &&
+        left.genericMedia == right.genericMedia &&
+        left.genericAvailable == right.genericAvailable &&
+        left.genericSource == right.genericSource &&
         left.sessionAvailable == right.sessionAvailable &&
         left.backendError == right.backendError &&
         left.state == right.state &&

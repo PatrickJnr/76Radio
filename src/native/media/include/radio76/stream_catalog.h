@@ -26,6 +26,8 @@ public:
 
     std::string TitleFor(std::string_view url);
 
+    std::string ConfiguredTitleFor(std::string_view url);
+
 private:
     void Refresh();
 
