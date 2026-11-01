@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(76Radio VERSION 0.2.0 LANGUAGES CXX)
+project(76Radio VERSION 0.3.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "76Radio builds only for Windows")

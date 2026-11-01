@@ -2,6 +2,25 @@
 
 All notable changes to 76Radio are recorded here. The first public version is 0.1.0.
 
+## 0.3.0
+
+### HUD card
+
+- Adds an in-game layout editor for the now-playing card. Press CTRL + SHIFT + L to start, drag the card with the mouse, right click to reset it to the default position, and press CTRL + SHIFT + L again to save. The position is kept as an offset from the game's notification area in `Data\modsdata\r76radio.layout.json` and applies without restarting the game.
+- Uses xScal's `Input` calls for the hotkey and mouse capture. Without them the editor stays off and the card keeps its default position.
+- Adds controller editing: the left bumper, right bumper and Y together start and stop it, and the right stick moves the card.
+- Adds `CardScale` and `CardOpacity` as defaults, and `HideInVats` to hide the card while VATS is active.
+- Lets you change the card size and opacity in the editor: the mouse wheel for size, SHIFT and the wheel for opacity, or the D-pad on a controller. The values are saved with the position and override the ini defaults, and a right click in the editor clears them.
+- Adds in-game hotkeys for play or pause, next, previous and showing or hiding the card, set in a new `[Hotkeys]` section. The defaults are CTRL + SHIFT with P, N, B and U.
+
+### Radio
+
+- Marks stations that failed as `[OFFLINE]` in the list. The mark is kept between sessions and cleared when the station plays again.
+
+### Fixes
+
+- Rebuilds the radio list when the Pip-Boy page is on screen with no entries, and records it in the log, as groundwork for the occasional blank first open.
+
 ## 0.2.0
 
 Moves the native module from a `version.dll` proxy to an xScal plugin. Nothing sits beside

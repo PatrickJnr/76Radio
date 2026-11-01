@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-0.2.0 receives security fixes. Older builds are not supported; rebuild from the current source.
+0.3.0 receives security fixes. Older builds are not supported; rebuild from the current source.
 
 ## Reporting a vulnerability
 

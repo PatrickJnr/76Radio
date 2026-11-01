@@ -16,6 +16,7 @@ constexpr auto kMaximumMediaPollInterval = std::chrono::milliseconds(60000);
 constexpr auto kMinimumCommandPollInterval = std::chrono::milliseconds(20);
 constexpr auto kMaximumCommandPollInterval = std::chrono::milliseconds(5000);
 constexpr auto kMaximumStartupDelay = std::chrono::milliseconds(60000);
+constexpr std::size_t kMaximumHotkeyChars = 24;
 
 std::string_view Trim(std::string_view text) {
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
@@ -68,6 +69,17 @@ std::chrono::milliseconds ClampMilliseconds(
     std::chrono::milliseconds maximum) {
     const auto clamped = std::clamp(value, minimum.count(), maximum.count());
     return std::chrono::milliseconds{clamped};
+}
+
+std::string SanitiseHotkey(std::string_view value) {
+    std::string chord;
+    for (const char character : value) {
+        const auto upper = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+        if ((upper >= 'A' && upper <= 'Z') || (upper >= '0' && upper <= '9') || upper == '+') {
+            chord.push_back(upper);
+        }
+    }
+    return chord.size() <= kMaximumHotkeyChars ? chord : std::string{};
 }
 
 }
@@ -146,6 +158,34 @@ RuntimeSettings ParseSettings(std::string_view text) {
                         if (ParseBoolean(value, on)) {
                             settings.keepNowPlaying = on;
                         }
+                    } else if (section == "ui" && key == "cardscale") {
+                        long long number = 0;
+                        if (ParseNumber(value, number)) {
+                            settings.cardScale = static_cast<int>(std::clamp<long long>(number, 50, 200));
+                        }
+                    } else if (section == "ui" && key == "cardopacity") {
+                        long long number = 0;
+                        if (ParseNumber(value, number)) {
+                            settings.cardOpacity = static_cast<int>(std::clamp<long long>(number, 20, 100));
+                        }
+                    } else if (section == "ui" && key == "hideinvats") {
+                        bool on = settings.hideInVats;
+                        if (ParseBoolean(value, on)) {
+                            settings.hideInVats = on;
+                        }
+                    } else if (section == "hotkeys" && key == "playpause") {
+                        settings.hotkeyPlayPause = SanitiseHotkey(value);
+                    } else if (section == "hotkeys" && key == "next") {
+                        settings.hotkeyNext = SanitiseHotkey(value);
+                    } else if (section == "hotkeys" && key == "previous") {
+                        settings.hotkeyPrevious = SanitiseHotkey(value);
+                    } else if (section == "hotkeys" && key == "togglecard") {
+                        settings.hotkeyToggleCard = SanitiseHotkey(value);
+                    } else if (section == "radio" && key == "resumelaststation") {
+                        bool on = settings.resumeLastStation;
+                        if (ParseBoolean(value, on)) {
+                            settings.resumeLastStation = on;
+                        }
                     }
                 }
             }
@@ -195,6 +235,15 @@ std::string DescribeSettings(const RuntimeSettings& settings) {
     line += settings.showArtwork ? "on" : "off";
     line += ", keep now playing ";
     line += settings.keepNowPlaying ? "on" : "off";
+    line += ", card " + std::to_string(settings.cardScale) + "% at " + std::to_string(settings.cardOpacity) + "% opacity";
+    line += ", hide in VATS ";
+    line += settings.hideInVats ? "on" : "off";
+    line += ", hotkeys " + (settings.hotkeyPlayPause.empty() ? std::string{"-"} : settings.hotkeyPlayPause);
+    line += "/" + (settings.hotkeyNext.empty() ? std::string{"-"} : settings.hotkeyNext);
+    line += "/" + (settings.hotkeyPrevious.empty() ? std::string{"-"} : settings.hotkeyPrevious);
+    line += "/" + (settings.hotkeyToggleCard.empty() ? std::string{"-"} : settings.hotkeyToggleCard);
+    line += ", resume last station ";
+    line += settings.resumeLastStation ? "on" : "off";
     return line;
 }
 

@@ -13,7 +13,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $workRoot = Join-Path $repoRoot 'work'
 $distRoot = Join-Path $repoRoot 'dist'
 $ffdecJar = Join-Path $repoRoot 'tools\vendor\ffdec\ffdec-cli.jar'
-$version = '0.2.0'
+$version = '0.3.0'
 
 function Write-Step {
     param([string]$Text)

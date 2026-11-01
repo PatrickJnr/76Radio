@@ -24,6 +24,7 @@ package
    import flash.text.TextFormat;
    import flash.utils.ByteArray;
    import flash.utils.Timer;
+   import flash.utils.getTimer;
    import Shared.HUDModes;
    import SharedHUDTools;
 
@@ -35,7 +36,7 @@ package
       private static const RELAY_STORAGE_NAME:String = "r76radio.relay";
       private static const THEME_STORAGE_NAME:String = "r76radio.theme";
       private static const POLL_MS:int = 200;
-      private static const RELAY_BUILD:String = "0.2.0";
+      private static const RELAY_BUILD:String = "0.3.0";
       private static const STATE_POLL_TICKS:int = 10;
       private static const MINI_WIDTH:Number = 340;
       private static const MINI_HEIGHT:Number = 92;
@@ -49,6 +50,22 @@ package
       private static const FALLBACK_HUD_X:Number = 4;
       private static const FALLBACK_HUD_Y:Number = 72;
       private static const DEFAULT_THEME_COLOR:uint = 0xB98CFF;
+      private static const LAYOUT_STORAGE_NAME:String = "r76radio.layout";
+      private static const KEY_SHIFT:uint = 16;
+      private static const KEY_CTRL:uint = 17;
+      private static const KEY_L:uint = 76;
+      private static const INPUT_POLL_TICKS:uint = 3;
+      private static const MOUSE_SENSITIVITY:Number = 1;
+      private static const PAD_CHORD:uint = 33536;
+      private static const PAD_INDEX:uint = 0;
+      private static const PAD_DPAD:uint = 15;
+      private static const PAD_DEADZONE:Number = 8000;
+      private static const PAD_SPEED:Number = 700;
+      private static const HOTKEY_COMMANDS:Array = ["toggle","next","previous",""];
+      private static const EDIT_HINT:String = "DRAG TO MOVE    RIGHT CLICK TO RESET\nWHEEL: SIZE    SHIFT + WHEEL: OPACITY\nCTRL + SHIFT + L TO SAVE";
+      private static const EDIT_HINT_SCALE:Number = 1.4;
+      private static const LOOK_STEP:Number = 5;
+      private static const LOOK_PAD_RATE:Number = 40;
 
       private static const STATE_PATHS:Array = [
          "../modsdata/76radio/r76radio.state.json",
@@ -129,6 +146,38 @@ package
       private var m_HudRoot:DisplayObject;
       private var m_MessagesObject:Object;
 
+      private var m_Code:Object;
+      private var m_InputReady:Boolean = false;
+      private var m_InputOk:Boolean = false;
+      private var m_InputTicks:uint = 0;
+      private var m_InputBackoff:uint = 0;
+      private var m_ChordWasDown:Boolean = false;
+      private var m_EditMode:Boolean = false;
+      private var m_EditFrame:Sprite;
+      private var m_EditHint:TextField;
+      private var m_BaseX:Number = 0;
+      private var m_BaseY:Number = 0;
+      private var m_OffsetX:Number = 0;
+      private var m_OffsetY:Number = 0;
+      private var m_LayoutLoaded:Boolean = false;
+      private var m_CardScale:Number = 100;
+      private var m_IniScale:Number = 100;
+      private var m_IniOpacity:Number = 100;
+      private var m_ScaleOverride:Number = 0;
+      private var m_OpacityOverride:Number = 0;
+      private var m_CardOpacity:Number = 100;
+      private var m_HideInVats:Boolean = false;
+      private var m_CardHidden:Boolean = false;
+      private var m_HudMode:String = "";
+      private var m_HotkeySpec:String = "";
+      private var m_Hotkeys:Array = [];
+      private var m_HotkeyWasDown:Array = [];
+      private var m_KeyCache:Object = {};
+      private var m_RegisteredKeys:Object = {};
+      private var m_PadRegistered:Boolean = false;
+      private var m_PadChordWasDown:Boolean = false;
+      private var m_PadLastAt:Number = 0;
+
       private var m_ThemeColor:uint = DEFAULT_THEME_COLOR;
       private var m_PipboyTheme:String = "";
       private var m_ThemeScanTicks:uint = 0;
@@ -161,6 +210,7 @@ package
 
          this.createMiniPlayer();
          try { BSUIDataManager.Subscribe("HUDColors",this.onHudColors); } catch(colorsError:Error) {}
+         try { BSUIDataManager.Subscribe("HUDModeData",this.onHudMode); } catch(modeError:Error) {}
 
          this.m_Timer = new Timer(POLL_MS);
          this.m_Timer.addEventListener(TimerEvent.TIMER,this.onTick);
@@ -175,6 +225,7 @@ package
       {
          this.markPresence();
          this.ensureStorage();
+         this.loadLayout();
          this.publishRelayStatus();
          this.updateCjkFont();
 
@@ -583,13 +634,30 @@ package
             x = Math.round(anchorPoint.x);
             y = Math.round(anchorPoint.y);
          }
-         if(x < 0) x = 0;
-         if(y < 0) y = 0;
-         if(x > stageWidth - MINI_WIDTH) x = Math.max(0, stageWidth - MINI_WIDTH);
-         if(y > stageHeight - MINI_HEIGHT) y = Math.max(0, stageHeight - MINI_HEIGHT);
+         this.m_BaseX = x;
+         this.m_BaseY = y;
+         this.applyMiniOffset();
+      }
 
-         this.m_MiniPlayer.x = x;
-         this.m_MiniPlayer.y = y;
+      private function applyMiniOffset() : void
+      {
+         if(this.m_MiniPlayer == null) return;
+         var stageWidth:Number = this.stage != null ? this.stage.stageWidth : 1280;
+         var stageHeight:Number = this.stage != null ? this.stage.stageHeight : 720;
+         if(isNaN(stageWidth) || stageWidth <= 0) stageWidth = 1280;
+         if(isNaN(stageHeight) || stageHeight <= 0) stageHeight = 720;
+
+         var scale:Number = this.m_CardScale / 100;
+         var x:Number = Math.max(0, Math.min(Math.max(0, stageWidth - MINI_WIDTH * scale), this.m_BaseX + this.m_OffsetX));
+         var y:Number = Math.max(0, Math.min(Math.max(0, stageHeight - MINI_HEIGHT * scale), this.m_BaseY + this.m_OffsetY));
+         this.m_MiniPlayer.x = Math.round(x);
+         this.m_MiniPlayer.y = Math.round(y);
+         if(this.m_EditMode)
+         {
+            this.m_OffsetX = this.m_MiniPlayer.x - this.m_BaseX;
+            this.m_OffsetY = this.m_MiniPlayer.y - this.m_BaseY;
+            this.placeEditHint();
+         }
       }
 
       private function findToastAnchor() : DisplayObject
@@ -665,10 +733,14 @@ package
       private function onCardFadeTick(param1:TimerEvent) : void
       {
          if(this.m_MiniPlayer == null) return;
+         this.m_InputTicks++;
+         if(this.m_EditMode) this.updateLayoutEdit();
+         else if(this.m_InputTicks % INPUT_POLL_TICKS == 0) this.pollLayoutHotkey();
          this.m_NotifyScanTicks++;
          if(this.m_KeepNowPlaying && this.m_NotifyScanTicks % 3 == 0) this.updateNotificationState();
 
-         var target:Number = this.m_CardShouldShow && !(this.m_KeepNowPlaying && this.m_NotificationActive) ? 1 : 0;
+         var shown:Boolean = this.m_EditMode || (this.m_CardShouldShow && !(this.m_KeepNowPlaying && this.m_NotificationActive) && !this.m_CardHidden && !this.hiddenByMode());
+         var target:Number = shown ? this.cardAlpha() : 0;
          var alpha:Number = this.m_MiniPlayer.alpha;
 
          if(alpha < target)
@@ -689,7 +761,7 @@ package
          }
 
          this.m_MiniPlayer.alpha = alpha;
-         if(this.m_CardShouldShow) this.m_MiniPlayer.visible = true;
+         if(this.m_CardShouldShow || this.m_EditMode) this.m_MiniPlayer.visible = true;
 
          if(this.m_LiveDisc != null && this.m_LiveDisc.visible && this.m_MiniPlayer.visible)
          {
@@ -768,6 +840,7 @@ package
          var state:String = this.readStringField(document, "state");
 
          this.m_KeepNowPlaying = this.readNumberField(document, "uiKeepNowPlaying") > 0;
+         this.applyCardOptions(document);
          this.m_MiniState = state;
          this.m_MiniPositionMs = this.readNumberField(document, "positionMs");
          this.m_MiniDurationMs = this.readNumberField(document, "durationMs");
@@ -879,7 +952,7 @@ package
          this.layoutMiniPlayer();
          this.m_CardShouldShow = true;
          this.m_MiniPlayer.visible = true;
-         if(!this.m_NotificationActive) this.m_MiniPlayer.alpha = 1;
+         if(!this.m_NotificationActive) this.m_MiniPlayer.alpha = this.cardAlpha();
          this.m_MiniHideAt = this.m_KeepNowPlaying ? 0 : new Date().getTime() + MINI_HOLD_MS;
          this.updateMiniProgress();
       }
@@ -1140,6 +1213,7 @@ package
       private function hideMiniPlayer() : void
       {
          this.m_CardShouldShow = false;
+         if(this.m_EditMode) return;
          if(this.m_MiniPlayer != null)
          {
             this.m_MiniPlayer.visible = false;
@@ -1150,7 +1224,7 @@ package
 
       private function updateMiniPlayer() : void
       {
-         if(this.m_MiniPlayer == null || !this.m_MiniPlayer.visible) return;
+         if(this.m_MiniPlayer == null || !this.m_MiniPlayer.visible || this.m_EditMode) return;
          if(this.m_MiniState != "playing")
          {
             this.hideMiniPlayer();
@@ -1639,6 +1713,451 @@ package
             index++;
          }
          return result;
+      }
+
+      private function inputCall(name:String, argument:* = undefined, second:* = undefined) : *
+      {
+         this.m_InputOk = false;
+         if(this.m_Code == null) return undefined;
+         try
+         {
+            var result:*;
+            if(argument === undefined) result = this.m_Code.call(name);
+            else if(second === undefined) result = this.m_Code.call(name, argument);
+            else result = this.m_Code.call(name, argument, second);
+            this.m_InputOk = true;
+            return result;
+         }
+         catch(callError:Error) {}
+         return undefined;
+      }
+
+      private function ensureInput() : Boolean
+      {
+         if(this.m_InputReady) return true;
+         if(this.m_Code == null) this.m_Code = this.resolveBridge();
+         if(this.m_Code == null) return false;
+         this.m_InputReady = this.registerKey(KEY_SHIFT) && this.registerKey(KEY_CTRL) && this.registerKey(KEY_L);
+         return this.m_InputReady;
+      }
+
+      private function registerKey(code:uint) : Boolean
+      {
+         if(this.m_RegisteredKeys[code] === true) return true;
+         this.inputCall("Input.RegisterKey", code);
+         if(this.m_InputOk) this.m_RegisteredKeys[code] = true;
+         return this.m_InputOk;
+      }
+
+      private function keyDown(code:uint) : Boolean
+      {
+         if(this.m_KeyCache[code] !== undefined) return this.m_KeyCache[code];
+         var down:Boolean = Boolean(this.inputCall("Input.IsKeyPressed", code));
+         this.m_KeyCache[code] = down;
+         return down;
+      }
+
+      private function layoutChordDown() : Boolean
+      {
+         return this.keyDown(KEY_L) && this.keyDown(KEY_SHIFT) && this.keyDown(KEY_CTRL);
+      }
+
+      private function pollLayoutHotkey() : void
+      {
+         if(!this.m_InputReady)
+         {
+            if(this.m_InputBackoff > 0)
+            {
+               this.m_InputBackoff--;
+               return;
+            }
+            if(!this.ensureInput())
+            {
+               this.m_InputBackoff = 30;
+               return;
+            }
+         }
+         this.m_KeyCache = {};
+         var chord:Boolean = this.layoutChordDown();
+         var pressed:Boolean = (chord && !this.m_ChordWasDown) || this.padChordPressed();
+         this.m_ChordWasDown = chord;
+         if(pressed)
+         {
+            this.beginLayoutEdit();
+            return;
+         }
+         this.pollMediaHotkeys();
+      }
+
+      private function padChordPressed() : Boolean
+      {
+         if(!this.m_PadRegistered)
+         {
+            this.inputCall("Input.RegisterGamepadButtons", PAD_CHORD, PAD_INDEX);
+            this.m_PadRegistered = this.m_InputOk;
+            if(!this.m_PadRegistered) return false;
+         }
+         var down:Boolean = Boolean(this.inputCall("Input.AreGamepadButtonsPressed", PAD_CHORD, PAD_INDEX));
+         var pressed:Boolean = down && !this.m_PadChordWasDown;
+         this.m_PadChordWasDown = down;
+         return pressed;
+      }
+
+      private function pollMediaHotkeys() : void
+      {
+         var index:int = 0;
+         while(index < this.m_Hotkeys.length)
+         {
+            var keys:Array = this.m_Hotkeys[index] as Array;
+            var down:Boolean = keys.length > 0;
+            var key:int = 0;
+            while(key < keys.length)
+            {
+               if(!this.registerKey(keys[key]) || !this.keyDown(keys[key])) down = false;
+               key++;
+            }
+            if(down && this.m_HotkeyWasDown[index] !== true)
+            {
+               if(String(HOTKEY_COMMANDS[index]).length > 0) this.sendCommand(HOTKEY_COMMANDS[index]);
+               else this.m_CardHidden = !this.m_CardHidden;
+            }
+            this.m_HotkeyWasDown[index] = down;
+            index++;
+         }
+      }
+
+      private function sendCommand(command:String) : void
+      {
+         if(!this.m_StorageReady || this.m_Storage == null) return;
+         try { this.m_Storage.save("{\"stamp\":" + new Date().getTime() + ",\"command\":\"" + command + "\"}"); }
+         catch(commandError:Error) {}
+      }
+
+      private function parseHotkeys(spec:String) : void
+      {
+         this.m_Hotkeys = [];
+         this.m_HotkeyWasDown = [];
+         var entries:Array = spec.split("|");
+         var index:int = 0;
+         while(index < HOTKEY_COMMANDS.length)
+         {
+            var chord:Array = [];
+            var text:String = index < entries.length ? String(entries[index]) : "";
+            if(text.length > 0)
+            {
+               var tokens:Array = text.split("+");
+               var token:int = 0;
+               while(token < tokens.length)
+               {
+                  var code:uint = this.keyCodeFor(String(tokens[token]));
+                  if(code == 0)
+                  {
+                     chord = [];
+                     break;
+                  }
+                  chord.push(code);
+                  token++;
+               }
+            }
+            this.m_Hotkeys.push(chord);
+            this.m_HotkeyWasDown.push(false);
+            index++;
+         }
+      }
+
+      private function keyCodeFor(name:String) : uint
+      {
+         if(name.length == 1)
+         {
+            var single:uint = name.charCodeAt(0);
+            if((single >= 65 && single <= 90) || (single >= 48 && single <= 57)) return single;
+            return 0;
+         }
+         switch(name)
+         {
+            case "CTRL":
+            case "CONTROL": return 17;
+            case "SHIFT": return 16;
+            case "ALT": return 18;
+            case "SPACE": return 32;
+            case "LEFT": return 37;
+            case "UP": return 38;
+            case "RIGHT": return 39;
+            case "DOWN": return 40;
+         }
+         var number:Number = Number(name.substr(1));
+         if(name.charAt(0) == "F" && number >= 1 && number <= 12) return 111 + number;
+         if(name.indexOf("NUM") == 0)
+         {
+            var digit:Number = Number(name.substr(name.length - 1));
+            if(name.length >= 4 && !isNaN(digit)) return 96 + digit;
+         }
+         return 0;
+      }
+
+      private function applyCardOptions(document:String) : void
+      {
+         var scale:Number = this.readNumberField(document, "uiScale");
+         if(scale < 50 || scale > 200) scale = 100;
+         var opacity:Number = this.readNumberField(document, "uiOpacity");
+         if(opacity < 20 || opacity > 100) opacity = 100;
+         this.m_HideInVats = this.readNumberField(document, "uiVats") > 0;
+         this.m_IniScale = scale;
+         this.m_IniOpacity = opacity;
+         this.refreshCardLook();
+         var spec:String = this.readStringField(document, "uiKeys");
+         if(spec != this.m_HotkeySpec)
+         {
+            this.m_HotkeySpec = spec;
+            this.parseHotkeys(spec);
+         }
+      }
+
+      private function refreshCardLook() : void
+      {
+         var scale:Number = this.m_ScaleOverride > 0 ? this.m_ScaleOverride : this.m_IniScale;
+         this.m_CardOpacity = this.m_OpacityOverride > 0 ? this.m_OpacityOverride : this.m_IniOpacity;
+         if(scale == this.m_CardScale) return;
+         this.m_CardScale = scale;
+         if(this.m_MiniPlayer == null) return;
+         this.m_MiniPlayer.scaleX = scale / 100;
+         this.m_MiniPlayer.scaleY = scale / 100;
+         if(this.m_MiniPlayer.visible) this.applyMiniOffset();
+      }
+
+      private function adjustScale(amount:Number) : void
+      {
+         var current:Number = this.m_ScaleOverride > 0 ? this.m_ScaleOverride : this.m_CardScale;
+         this.m_ScaleOverride = Math.max(50, Math.min(200, current + amount));
+         this.refreshCardLook();
+      }
+
+      private function adjustOpacity(amount:Number) : void
+      {
+         var current:Number = this.m_OpacityOverride > 0 ? this.m_OpacityOverride : this.m_CardOpacity;
+         this.m_OpacityOverride = Math.max(20, Math.min(100, current + amount));
+         this.refreshCardLook();
+      }
+
+      private function cardAlpha() : Number
+      {
+         return this.m_CardOpacity / 100;
+      }
+
+      private function hiddenByMode() : Boolean
+      {
+         return this.m_HideInVats && (this.m_HudMode == HUDModes.VATS_MODE || this.m_HudMode == HUDModes.VATS_PLAYBACK);
+      }
+
+      private function onHudMode(event:FromClientDataEvent) : void
+      {
+         var data:Object = event != null ? event.data : null;
+         if(data == null) return;
+         this.m_HudMode = String(data.hudMode);
+      }
+
+      private function padAxis(value:*) : Number
+      {
+         var raw:Number = Number(value) || 0;
+         var size:Number = Math.abs(raw);
+         if(size <= PAD_DEADZONE) return 0;
+         var scaled:Number = Math.min(1, (size - PAD_DEADZONE) / (32767 - PAD_DEADZONE));
+         return raw < 0 ? -scaled : scaled;
+      }
+
+      private function beginLayoutEdit() : void
+      {
+         if(this.m_EditMode || this.m_MiniPlayer == null) return;
+         if(!Boolean(this.inputCall("Input.BeginMouseCapture"))) return;
+
+         this.m_EditMode = true;
+         this.m_PadLastAt = 0;
+         this.inputCall("Input.SuppressGamepadAnalog", PAD_INDEX);
+         this.inputCall("Input.SuppressGamepadButtons", PAD_DPAD, PAD_INDEX);
+         if(this.m_MiniTitle.text.length == 0)
+         {
+            this.m_MiniLabel.text = "LAYOUT";
+            this.m_MiniTitle.text = "76Radio";
+            this.m_MiniArtist.text = "Card position";
+            this.m_MiniTime.text = "";
+            this.applyMiniFonts();
+            this.drawMiniArtPlaceholder();
+         }
+         this.drawMiniPlayerChrome();
+         this.buildEditOverlay();
+         this.layoutMiniPlayer();
+         this.m_MiniPlayer.alpha = this.cardAlpha();
+         this.m_MiniPlayer.visible = true;
+      }
+
+      private function endLayoutEdit() : void
+      {
+         if(!this.m_EditMode) return;
+         this.m_EditMode = false;
+         this.inputCall("Input.EndMouseCapture");
+         this.inputCall("Input.UnsuppressGamepadAnalog", PAD_INDEX);
+         this.inputCall("Input.UnsuppressGamepadButtons", PAD_DPAD, PAD_INDEX);
+         if(this.m_EditFrame != null) this.m_EditFrame.visible = false;
+         if(this.m_EditHint != null) this.m_EditHint.visible = false;
+         this.saveLayout();
+         if(!this.m_CardShouldShow) this.hideMiniPlayer();
+      }
+
+      private function updateLayoutEdit() : void
+      {
+         this.m_KeyCache = {};
+         var chord:Boolean = this.layoutChordDown();
+         var pressed:Boolean = chord && !this.m_ChordWasDown;
+         this.m_ChordWasDown = chord;
+         if(pressed || !this.m_InputOk || this.padChordPressed())
+         {
+            this.endLayoutEdit();
+            return;
+         }
+         this.moveWithPad();
+
+         var mouse:* = this.inputCall("Input.PollMouse");
+         if(!this.m_InputOk || mouse == null) return;
+         if(this.mouseField(mouse, "capturing", 1) == 0)
+         {
+            this.endLayoutEdit();
+            return;
+         }
+         if(this.mouseField(mouse, "rightPressed", 0) != 0)
+         {
+            this.m_OffsetX = 0;
+            this.m_OffsetY = 0;
+            this.m_ScaleOverride = 0;
+            this.m_OpacityOverride = 0;
+            this.refreshCardLook();
+            this.applyMiniOffset();
+            return;
+         }
+         var wheel:Number = this.mouseField(mouse, "wheel", 0);
+         if(wheel != 0)
+         {
+            var step:Number = wheel > 0 ? LOOK_STEP : -LOOK_STEP;
+            if(this.keyDown(KEY_SHIFT)) this.adjustOpacity(step);
+            else this.adjustScale(step);
+         }
+         if(this.mouseField(mouse, "left", 0) == 0) return;
+
+         var dx:Number = this.mouseField(mouse, "dx", 0) * MOUSE_SENSITIVITY;
+         var dy:Number = this.mouseField(mouse, "dy", 0) * MOUSE_SENSITIVITY;
+         if(dx == 0 && dy == 0) return;
+         this.m_OffsetX += dx;
+         this.m_OffsetY += dy;
+         this.applyMiniOffset();
+      }
+
+      private function moveWithPad() : void
+      {
+         var now:Number = getTimer();
+         var elapsed:Number = this.m_PadLastAt > 0 ? Math.min(0.1, (now - this.m_PadLastAt) / 1000) : 0;
+         this.m_PadLastAt = now;
+         var pad:* = this.inputCall("Input.PollGamepad", PAD_INDEX);
+         if(!this.m_InputOk || pad == null || this.mouseField(pad, "connected", 0) == 0) return;
+         var buttons:uint = uint(this.mouseField(pad, "buttons", 0));
+         var sizeStep:Number = ((buttons & 1) != 0 ? 1 : 0) - ((buttons & 2) != 0 ? 1 : 0);
+         var opacityStep:Number = ((buttons & 8) != 0 ? 1 : 0) - ((buttons & 4) != 0 ? 1 : 0);
+         if(sizeStep != 0) this.adjustScale(sizeStep * LOOK_PAD_RATE * elapsed);
+         if(opacityStep != 0) this.adjustOpacity(opacityStep * LOOK_PAD_RATE * elapsed);
+         var dx:Number = this.padAxis(this.mouseField(pad, "rx", 0));
+         var dy:Number = this.padAxis(this.mouseField(pad, "ry", 0));
+         if(dx == 0 && dy == 0) return;
+         this.m_OffsetX += dx * PAD_SPEED * elapsed;
+         this.m_OffsetY -= dy * PAD_SPEED * elapsed;
+         this.applyMiniOffset();
+      }
+
+      private function mouseField(mouse:*, key:String, fallback:Number) : Number
+      {
+         if(mouse is String)
+         {
+            var text:String = String(mouse);
+            var start:int = text.indexOf("\"" + key + "\"");
+            if(start < 0) return fallback;
+            start = text.indexOf(":", start);
+            if(start < 0) return fallback;
+            start++;
+            var end:int = start;
+            while(end < text.length && text.charAt(end) != "," && text.charAt(end) != "}") end++;
+            var token:String = text.substring(start, end).replace(/\s+/g, "");
+            if(token == "true") return 1;
+            if(token == "false") return 0;
+            var parsed:Number = Number(token);
+            return isNaN(parsed) ? fallback : parsed;
+         }
+         var value:* = undefined;
+         try { value = mouse[key]; } catch(fieldError:Error) {}
+         if(value === undefined || value === null) return fallback;
+         if(value is Boolean) return value ? 1 : 0;
+         var number:Number = Number(value);
+         return isNaN(number) ? fallback : number;
+      }
+
+      private function buildEditOverlay() : void
+      {
+         if(this.m_EditFrame == null)
+         {
+            this.m_EditFrame = new Sprite();
+            this.m_EditFrame.mouseEnabled = false;
+            this.m_MiniPlayer.addChild(this.m_EditFrame);
+
+            this.m_EditHint = this.createMiniField(10, -44, 40);
+            this.m_EditHint.x = 0;
+            this.m_EditHint.width = MINI_WIDTH;
+            this.m_EditHint.multiline = true;
+            this.m_MiniPlayer.addChild(this.m_EditHint);
+         }
+         var frame:Graphics = this.m_EditFrame.graphics;
+         frame.clear();
+         frame.lineStyle(2, this.shadeColor(this.m_ThemeColor, 0.9), 1);
+         frame.drawRect(-3, -3, MINI_WIDTH + 6, MINI_HEIGHT + 6);
+         this.m_EditFrame.visible = true;
+
+         this.applyFormat(this.m_EditHint, new TextFormat("$MAIN_Font_Bold", 10, this.shadeColor(this.m_ThemeColor, 0.9), true));
+         this.m_EditHint.text = EDIT_HINT;
+         this.m_EditHint.visible = true;
+      }
+
+      private function placeEditHint() : void
+      {
+         if(this.m_EditHint == null || this.m_MiniPlayer == null) return;
+         var scale:Number = this.m_CardScale / 100;
+         var size:Number = EDIT_HINT_SCALE / scale;
+         this.m_EditHint.scaleX = size;
+         this.m_EditHint.scaleY = size;
+         this.m_EditHint.y = this.m_MiniPlayer.y >= 52 * EDIT_HINT_SCALE ? -44 * size : MINI_HEIGHT + 6 / scale;
+      }
+
+      private function loadLayout() : void
+      {
+         if(this.m_LayoutLoaded || !this.m_StorageReady || this.m_Storage == null) return;
+         this.m_LayoutLoaded = true;
+         var document:String;
+         try { document = String(this.m_Storage.load(LAYOUT_STORAGE_NAME)); }
+         catch(loadError:Error) { return; }
+         if(document == null || document.length == 0 || document == "undefined" || document == "null") return;
+
+         this.m_OffsetX = this.mouseField(document, "x", 0);
+         this.m_OffsetY = this.mouseField(document, "y", 0);
+         var savedScale:Number = this.mouseField(document, "scale", 0);
+         var savedOpacity:Number = this.mouseField(document, "opacity", 0);
+         this.m_ScaleOverride = savedScale >= 50 && savedScale <= 200 ? savedScale : 0;
+         this.m_OpacityOverride = savedOpacity >= 20 && savedOpacity <= 100 ? savedOpacity : 0;
+         this.refreshCardLook();
+         if(this.m_MiniPlayer != null && this.m_MiniPlayer.visible) this.applyMiniOffset();
+      }
+
+      private function saveLayout() : void
+      {
+         if(!this.m_StorageReady || this.m_Storage == null) return;
+         var document:String = "{\"x\":" + Math.round(this.m_OffsetX) + ",\"y\":" + Math.round(this.m_OffsetY);
+         if(this.m_ScaleOverride > 0) document += ",\"scale\":" + Math.round(this.m_ScaleOverride);
+         if(this.m_OpacityOverride > 0) document += ",\"opacity\":" + Math.round(this.m_OpacityOverride);
+         try { this.m_Storage.save(LAYOUT_STORAGE_NAME, document + "}"); }
+         catch(saveError:Error) {}
       }
 
       private function ensureStorage() : void

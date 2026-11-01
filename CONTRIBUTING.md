@@ -62,7 +62,7 @@ If an AI assistant helped with a pull request, say so in the description and nam
 
 ## Releases
 
-Maintainers follow [RELEASING.md](RELEASING.md). It covers the version bump, the release script, the VirusTotal upload and the text that has to be updated before a tag is created.
+Maintainers follow [RELEASING.md](RELEASING.md). It covers the version bump, the release script and the text that has to be updated before a tag is created.
 
 ## Licence and contributions
 

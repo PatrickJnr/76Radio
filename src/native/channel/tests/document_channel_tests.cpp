@@ -108,6 +108,7 @@ int main() {
     paths.stateDocument = directory / "r76radio.state.json";
     paths.logFile = directory / "76Radio.log";
     paths.prefsFile = directory / "Fallout76Prefs.ini";
+    paths.healthDocument = directory / "r76radio.health.json";
 
     WriteDocument(
         paths.prefsFile,
@@ -119,10 +120,15 @@ int main() {
     ui.showArtStatus = false;
     ui.showArtwork = false;
     ui.keepNowPlaying = true;
+    ui.cardScale = 130;
+    ui.cardOpacity = 80;
+    ui.hideInVats = true;
+    ui.hotkeys = "CTRL+SHIFT+P|CTRL+SHIFT+N|";
     radio76::DocumentChannel channel(runtime, paths, std::chrono::milliseconds(25), ui);
     report.Check(channel.Start(), "channel starts");
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (std::chrono::steady_clock::now() < deadline && !std::filesystem::exists(paths.stateDocument)) {
+    while (std::chrono::steady_clock::now() < deadline &&
+           !Contains(ReadDocument(paths.stateDocument), "\"title\":\"Channel Song\"")) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     report.Check(std::filesystem::exists(paths.stateDocument), "state document is published");
@@ -139,6 +145,10 @@ int main() {
     report.Check(Contains(state, "\"uiArtwork\":0"), "state document carries the artwork flag");
     report.Check(Contains(state, "\"uiKeepNowPlaying\":1"), "state document carries the persistent card flag");
     report.Check(Contains(state, "\"uiTheme\":\"FFB742\""), "state document carries the Pip-Boy color");
+    report.Check(Contains(state, "\"uiScale\":130"), "state document carries the card scale");
+    report.Check(Contains(state, "\"uiOpacity\":80"), "state document carries the card opacity");
+    report.Check(Contains(state, "\"uiVats\":1"), "state document carries the hide in VATS flag");
+    report.Check(Contains(state, "\"uiKeys\":\"CTRL+SHIFT+P|CTRL+SHIFT+N|\""), "state document carries the hotkeys");
     report.Check(
         Contains(ReadDocument(paths.logFile), "pipboy color: FFB742"),
         "the Pip-Boy color is visible in the log");
@@ -229,6 +239,40 @@ int main() {
         Contains(ReadDocument(paths.stateDocument), "\"positionMs\":155000"),
         "a seek republishes the new playback position");
     report.Check(channel.StateWrites() > writesBeforeSeek, "the seek counts as a state write");
+
+    WriteDocument(paths.commandDocument, "{\"stamp\":900,\"command\":\"stream|http://example.test/live\"}");
+    report.Check(
+        WaitForLogLine(paths.logFile, "command executed: stream|http://example.test/live"),
+        "a station command is executed");
+    auto failedStream = MockMediaBackend::Playing("Live", "Station", "");
+    failedStream.streamActive = true;
+    failedStream.state = radio76::PlaybackState::Failed;
+    backend->SetSnapshot(failedStream);
+    report.Check(
+        WaitForLogLine(paths.logFile, "station marked offline: http://example.test/live"),
+        "a failed station is marked offline");
+    const auto healthDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < healthDeadline &&
+           !Contains(ReadDocument(paths.healthDocument), "\"http://example.test/live\"")) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    report.Check(
+        Contains(ReadDocument(paths.healthDocument), "\"http://example.test/live\""),
+        "the health document lists the failed station");
+    auto recoveredStream = failedStream;
+    recoveredStream.state = radio76::PlaybackState::Playing;
+    backend->SetSnapshot(recoveredStream);
+    report.Check(
+        WaitForLogLine(paths.logFile, "station back online: http://example.test/live"),
+        "a recovered station is marked online again");
+    const auto recoveredDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < recoveredDeadline &&
+           Contains(ReadDocument(paths.healthDocument), "example.test")) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    report.Check(
+        !Contains(ReadDocument(paths.healthDocument), "example.test"),
+        "the health document drops a recovered station");
 
     channel.Stop();
     report.Check(!channel.Running(), "channel stops");

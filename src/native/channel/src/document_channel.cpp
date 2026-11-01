@@ -22,6 +22,14 @@ constexpr std::size_t kMaximumDocumentReadBytes = 4096;
 
 constexpr std::int64_t kSeekJumpToleranceMs = 1500;
 
+constexpr auto kResumeDelay = std::chrono::seconds(20);
+
+constexpr std::size_t kMaximumFailedStations = 64;
+
+constexpr std::size_t kMaximumFailedAddressBytes = 512;
+
+constexpr std::string_view kStreamCommandPrefix = "stream|";
+
 bool EnsureParentDirectory(const std::filesystem::path& path) {
     const auto parent = path.parent_path();
     if (parent.empty()) {
@@ -172,6 +180,11 @@ std::string AppendUiFields(std::string document, const ChannelUi& ui, std::strin
     document += ui.showArtwork ? "1" : "0";
     document += ",\"uiKeepNowPlaying\":";
     document += ui.keepNowPlaying ? "1" : "0";
+    document += ",\"uiScale\":" + std::to_string(ui.cardScale);
+    document += ",\"uiOpacity\":" + std::to_string(ui.cardOpacity);
+    document += ",\"uiVats\":";
+    document += ui.hideInVats ? "1" : "0";
+    document += ",\"uiKeys\":\"" + ui.hotkeys + "\"";
     if (!theme.empty()) {
         document += ",\"uiTheme\":\"";
         document += theme;
@@ -266,8 +279,11 @@ bool DocumentChannel::Start() {
             seenDiagCommand_ = parsed.command;
         }
     }
+    LoadFailedStations();
     stopRequested_.store(false);
     running_.store(true);
+    resumeAttempted_ = !ui_.resumeLastStation;
+    resumeNotBefore_ = std::chrono::steady_clock::time_point{};
     worker_ = std::thread(&DocumentChannel::WorkerMain, this);
     Log("channel started");
     Log("reading " + Narrow(paths_.commandDocument));
@@ -303,6 +319,11 @@ void DocumentChannel::WorkerMain() {
             answered = true;
             const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(now - started).count();
             Log("media service answered after " + std::to_string(seconds) + " s");
+            resumeNotBefore_ = now + kResumeDelay;
+        }
+        if (answered) {
+            TryResumeStation();
+            TrackStationHealth();
         }
         if (!answered && now - started > std::chrono::seconds(5) &&
             now - lastWaitingLog > std::chrono::seconds(30)) {
@@ -342,6 +363,11 @@ bool DocumentChannel::PollOnce() {
     }
     const auto outcome = runtime_.HandleCommand(parsed.command);
     if (outcome.accepted()) {
+        if (outcome.command.action == TransportAction::Stream) {
+            RememberStation(parsed.command);
+        } else if (outcome.command.action == TransportAction::StopStream) {
+            ForgetStation();
+        }
         commandsExecuted_.fetch_add(1);
         Log("command executed: " + parsed.command);
         return true;
@@ -349,6 +375,123 @@ bool DocumentChannel::PollOnce() {
     commandsRejected_.fetch_add(1);
     Log("command rejected: " + parsed.command + " (" + outcome.detail + ")");
     return false;
+}
+
+void DocumentChannel::RememberStation(const std::string& command) {
+    lastStreamCommand_ = command;
+    if (paths_.lastStationDocument.empty() || !ui_.resumeLastStation) {
+        return;
+    }
+    if (!WriteFileReplacing(paths_.lastStationDocument, command)) {
+        Log("last station could not be saved");
+    }
+}
+
+void DocumentChannel::ForgetStation() {
+    lastStreamCommand_.clear();
+    if (paths_.lastStationDocument.empty()) {
+        return;
+    }
+    std::error_code error;
+    std::filesystem::remove(paths_.lastStationDocument, error);
+}
+
+void DocumentChannel::TryResumeStation() {
+    if (resumeAttempted_) {
+        const auto snapshot = runtime_.Current();
+        if (ui_.resumeLastStation && snapshot != nullptr && snapshot->streamActive && snapshot->state == PlaybackState::Failed &&
+            !lastStreamCommand_.empty()) {
+            Log("station failed, it will not be resumed next time");
+            ForgetStation();
+        }
+        return;
+    }
+    if (std::chrono::steady_clock::now() < resumeNotBefore_ || paths_.lastStationDocument.empty()) {
+        return;
+    }
+    resumeAttempted_ = true;
+    std::string command;
+    if (!ReadBoundedFile(paths_.lastStationDocument, command) ||
+        std::string_view{command}.rfind(kStreamCommandPrefix, 0) != 0) {
+        return;
+    }
+    const auto outcome = runtime_.HandleCommand(command);
+    if (outcome.accepted()) {
+        lastStreamCommand_ = command;
+        Log("resumed the last station");
+        return;
+    }
+    Log("last station could not be resumed (" + outcome.detail + ")");
+    ForgetStation();
+}
+
+void DocumentChannel::TrackStationHealth() {
+    if (paths_.healthDocument.empty() || lastStreamCommand_.size() <= kStreamCommandPrefix.size()) {
+        return;
+    }
+    const auto snapshot = runtime_.Current();
+    if (snapshot == nullptr || !snapshot->streamActive) {
+        return;
+    }
+    const std::string address = lastStreamCommand_.substr(kStreamCommandPrefix.size());
+    if (address.size() > kMaximumFailedAddressBytes ||
+        address.find_first_of("\"\\") != std::string::npos) {
+        return;
+    }
+    if (snapshot->state == PlaybackState::Failed) {
+        if (failedStations_.size() < kMaximumFailedStations && failedStations_.insert(address).second) {
+            Log("station marked offline: " + address);
+            WriteFailedStations();
+        }
+    } else if (snapshot->state == PlaybackState::Playing && failedStations_.erase(address) > 0) {
+        Log("station back online: " + address);
+        WriteFailedStations();
+    }
+}
+
+void DocumentChannel::LoadFailedStations() {
+    failedStations_.clear();
+    if (paths_.healthDocument.empty()) {
+        return;
+    }
+    std::ifstream stream{paths_.healthDocument, std::ios::binary};
+    if (!stream) {
+        return;
+    }
+    const std::string text{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    const auto list = text.find('[');
+    std::size_t cursor = list == std::string::npos ? text.size() : list + 1;
+    while (failedStations_.size() < kMaximumFailedStations) {
+        const auto open = text.find('"', cursor);
+        if (open == std::string::npos) {
+            break;
+        }
+        const auto close = text.find('"', open + 1);
+        if (close == std::string::npos) {
+            break;
+        }
+        const std::string address = text.substr(open + 1, close - open - 1);
+        if (address.size() <= kMaximumFailedAddressBytes && address.find('\\') == std::string::npos) {
+            failedStations_.insert(address);
+        }
+        cursor = close + 1;
+    }
+}
+
+void DocumentChannel::WriteFailedStations() {
+    std::string document = "{\"failed\":[";
+    bool first = true;
+    for (const auto& address : failedStations_) {
+        if (!first) {
+            document += ",";
+        }
+        first = false;
+        document += "\"" + address + "\"";
+    }
+    document += "]}";
+    if (!WriteFileReplacing(paths_.healthDocument, document)) {
+        Log("station health could not be saved");
+    }
 }
 
 void DocumentChannel::PollDiagDocument() {

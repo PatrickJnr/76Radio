@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -21,6 +22,8 @@ struct ChannelPaths {
     std::filesystem::path logFile;
 
     std::filesystem::path prefsFile;
+    std::filesystem::path lastStationDocument;
+    std::filesystem::path healthDocument;
     std::size_t logMaxBytes = kDefaultLogMaxBytes;
 };
 
@@ -30,6 +33,13 @@ struct ChannelUi {
     bool showArtwork = true;
 
     bool keepNowPlaying = false;
+
+    int cardScale = 100;
+    int cardOpacity = 100;
+    bool hideInVats = false;
+    std::string hotkeys;
+
+    bool resumeLastStation = false;
 };
 
 class DocumentChannel {
@@ -69,6 +79,18 @@ private:
 
     void UpdatePipboyTheme();
 
+    void RememberStation(const std::string& command);
+
+    void ForgetStation();
+
+    void TryResumeStation();
+
+    void TrackStationHealth();
+
+    void LoadFailedStations();
+
+    void WriteFailedStations();
+
     void WorkerMain();
 
     bool ReadCommandDocument(std::string& document) const;
@@ -103,6 +125,11 @@ private:
     std::string pipboyTheme_;
     std::filesystem::file_time_type pipboyThemeStamp_{};
     bool pipboyThemeRead_ = false;
+
+    std::string lastStreamCommand_;
+    bool resumeAttempted_ = false;
+    std::set<std::string> failedStations_;
+    std::chrono::steady_clock::time_point resumeNotBefore_{};
 
     bool observedSnapshotValid_ = false;
     std::int64_t observedPositionMs_ = 0;

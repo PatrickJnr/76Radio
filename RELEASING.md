@@ -1,6 +1,6 @@
 # Releasing 76Radio
 
-This is the checklist for a release build. It exists so the package, checksums and VirusTotal report are produced the same way every time rather than from memory.
+This is the checklist for a release build. It exists so the package and checksums are produced the same way every time rather than from memory.
 
 ## Before building
 
@@ -17,66 +17,16 @@ From the repository root:
 powershell -ExecutionPolicy Bypass -File scripts\release.ps1
 ```
 
-The script runs `build.ps1` (CMake configure and build with the xScal SDK, native tests, HUD relay, FFDec patch, BA2 pack), then `package.ps1` (staged files, hashes checked against the build manifest, zip, `dist\SHA256SUMS.txt`). It finishes by writing `dist\virustotal.txt`.
-
-## VirusTotal
-
-Every release uploads the shipped `76Radio.dll`, because the hash changes with every build. Two builds from the same source are not byte identical, so a report from an earlier version tells a user nothing about the file they downloaded.
-
-### Where the key lives
-
-Get the key from the VirusTotal account menu under API key. Store it as a Windows user environment variable, outside the repository:
-
-```powershell
-setx VT_API_KEY "your key"
-```
-
-Open a new terminal after `setx`, then confirm that it is visible without printing the value:
-
-```powershell
-if ($env:VT_API_KEY) { 'key present' }
-```
-
-For a single session, `$env:VT_API_KEY = 'your key'` works instead. Never put the key in the repository, a config file, a script, a commit message or the Nexus page. `scripts\release.ps1` reads only the environment and never writes the key anywhere.
-
-### Quotas
-
-The standard free public API allows 1 lookup per minute, 1 lookup per day and 31 per month. An upload counts as a lookup. The script therefore uploads once and does not poll, because polling every few seconds would fail and could consume the whole allowance. Keep one upload per release.
-
-With that allowance, uploading through the website is usually the better choice. The website upload at https://www.virustotal.com/gui/home/upload does not consume the API quota, and viewing the report in a browser does not either.
-
-### Uploading
-
-Manual upload, recommended for the free account:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\release.ps1
-```
-
-That builds and packages, writes the hash and both text snippets to `dist\virustotal.txt`, and does not touch the API. Upload `dist\76Radio.dll` through the website, then confirm that the report hash matches the hash in the file.
-
-One API request, using the stored key:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -UploadToVirusTotal
-```
-
-That sends `dist\76Radio.dll` once and prints the report URL. It does not wait for the analysis, because that needs more lookups. Open the report in a browser about a minute later and read the detection counts there.
-
-Do not describe a build as clean because the upload finished. Read the report. A detection needs a false positive report to the vendor before release, and a report with any malicious detection blocks the release until it is explained.
+The script runs `build.ps1` (CMake configure and build with the xScal SDK, native tests, HUD relay, FFDec patch, BA2 pack), then `package.ps1` (staged files, hashes checked against the build manifest, zip, `dist\SHA256SUMS.txt`). It finishes by printing the hashes of the plugin and the package.
 
 ## Update the public text
 
 `release\nexus` holds the store artwork and copy locally and is ignored by Git, so those files do not appear in the public repository.
 
-`dist\virustotal.txt` contains the version, both hashes, the report URL and two ready paragraphs.
-
-1. Replace the existing VirusTotal paragraph in `README.md` with the README paragraph.
-2. Replace the matching paragraph in `release\nexus\description.bbcode` with the Nexus paragraph.
-3. Add the observed detection count and the date checked to both paragraphs, for example `VirusTotal reported 0 of 70 vendors flagging it when checked on 30 October 2026.` A count without a date ages badly.
-4. Update the version and the download name anywhere the README or the Nexus page names the package.
-5. Check that the SHA-256 in the text matches `dist\76Radio.dll` and not an earlier build.
-6. Add or update `release\nexus\changelog-<version>.txt` with a condensed, one-entry-per-line changelog for the Nexus version field. The repository `CHANGELOG.md` is deliberately more detailed.
+1. Update the version and the download name anywhere the README or the Nexus page names the package.
+2. Check that `README.md`, `INSTALL.txt` (the text in `scripts\package.ps1`) and `release\nexus\description.bbcode` describe the same settings, hotkeys and requirements as `config\76Radio.ini` and `CHANGELOG.md`.
+3. Add or update `release\nexus\changelog-<version>.txt` with a condensed, one-entry-per-line changelog for the Nexus version field. The repository `CHANGELOG.md` is deliberately more detailed.
+4. Do not rebuild after packaging. Two builds from the same source are not byte identical, so a rebuild changes the hashes in `dist\SHA256SUMS.txt` and the signature file.
 
 ## Verify the package
 
@@ -131,4 +81,4 @@ The 0.1.0 history was created as a single root commit and the tag points at it, 
 
 ## Publish
 
-Publishing is a separate decision. Pushing a tag creates the draft release; publishing it, uploading to Nexus and making the repository public are done only when the project owner asks for them. The release script never uploads anywhere except VirusTotal.
+Publishing is a separate decision. Pushing a tag creates the draft release; publishing it, uploading to Nexus and making the repository public are done only when the project owner asks for them. The release script never uploads anywhere.

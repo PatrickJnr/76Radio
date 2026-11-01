@@ -18,7 +18,7 @@
 
 namespace {
 
-constexpr std::string_view kPluginVersion = "0.2.0";
+constexpr std::string_view kPluginVersion = "0.3.0";
 constexpr char kPluginId[] = "patrickjnr_76radio";
 constexpr char kPluginName[] = "76Radio";
 
@@ -78,6 +78,8 @@ radio76::ChannelPaths BuildPaths(
     paths.diagDocument = modsData / L"r76radio.diag.json";
     paths.stateDocument = moduleData / L"r76radio.state.json";
     paths.prefsFile = PipboyPrefsFile();
+    paths.lastStationDocument = moduleData / L"r76radio.last.json";
+    paths.healthDocument = moduleData / L"r76radio.health.json";
     paths.logFile = logFile;
     paths.logMaxBytes = logMaxBytes;
     return paths;
@@ -125,6 +127,11 @@ void WorkerBody(std::filesystem::path root, radio76::RuntimeSettings settings) {
     ui.showArtStatus = settings.showArtStatus;
     ui.showArtwork = settings.showArtwork;
     ui.keepNowPlaying = settings.keepNowPlaying;
+    ui.cardScale = settings.cardScale;
+    ui.cardOpacity = settings.cardOpacity;
+    ui.hideInVats = settings.hideInVats;
+    ui.hotkeys = settings.hotkeyPlayPause + "|" + settings.hotkeyNext + "|" + settings.hotkeyPrevious + "|" + settings.hotkeyToggleCard;
+    ui.resumeLastStation = settings.resumeLastStation;
 
     auto channel = std::make_unique<radio76::DocumentChannel>(
         *activeRuntime, paths, settings.commandPollInterval, ui);

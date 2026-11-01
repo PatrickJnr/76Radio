@@ -23,6 +23,17 @@ struct RuntimeSettings {
     bool showArtwork = true;
 
     bool keepNowPlaying = false;
+
+    int cardScale = 100;
+    int cardOpacity = 100;
+    bool hideInVats = false;
+
+    std::string hotkeyPlayPause = "CTRL+SHIFT+P";
+    std::string hotkeyNext = "CTRL+SHIFT+N";
+    std::string hotkeyPrevious = "CTRL+SHIFT+B";
+    std::string hotkeyToggleCard = "CTRL+SHIFT+U";
+
+    bool resumeLastStation = false;
 };
 
 inline constexpr std::size_t kMaximumSettingsBytes = 8192;

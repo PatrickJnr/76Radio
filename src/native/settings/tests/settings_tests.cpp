@@ -48,6 +48,29 @@ int main() {
     report.Check(!defaults.showArtStatus, "empty file hides the art status line");
     report.Check(defaults.showArtwork, "empty file keeps the artwork on");
     report.Check(!defaults.keepNowPlaying, "empty file keeps the now-playing card as a timed toast");
+    report.Check(defaults.cardScale == 100 && defaults.cardOpacity == 100, "empty file keeps the card at full size and opacity");
+    report.Check(!defaults.hideInVats, "empty file keeps the card visible in VATS");
+    report.Check(defaults.hotkeyPlayPause == "CTRL+SHIFT+P", "empty file keeps the default play and pause hotkey");
+    report.Check(!defaults.resumeLastStation, "empty file does not resume a station");
+    report.Check(defaults.hotkeyToggleCard == "CTRL+SHIFT+U", "empty file keeps the default card toggle hotkey");
+
+    const auto cardOptions = radio76::ParseSettings(
+        "[UI]\n"
+        "CardScale=500\n"
+        "CardOpacity=5\n"
+        "HideInVats=yes\n"
+        "[Hotkeys]\n"
+        "PlayPause = ctrl + alt + f9\n"
+        "Next=\n"
+        "Previous=!!\n"
+        "[Radio]\n"
+        "ResumeLastStation=1\n");
+    report.Check(cardOptions.cardScale == 200, "card scale is clamped to 200");
+    report.Check(cardOptions.cardOpacity == 20, "card opacity is clamped to 20");
+    report.Check(cardOptions.hideInVats, "hide in VATS is read");
+    report.Check(cardOptions.hotkeyPlayPause == "CTRL+ALT+F9", "hotkeys are upper-cased and stripped of spaces");
+    report.Check(cardOptions.hotkeyNext.empty() && cardOptions.hotkeyPrevious.empty(), "an empty or invalid hotkey disables it");
+    report.Check(cardOptions.resumeLastStation, "resume last station is read");
 
     const auto parsed = radio76::ParseSettings(
         "; 76Radio settings\n"

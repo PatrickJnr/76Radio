@@ -146,6 +146,7 @@ Documents live in the game's `Data\modsdata` directory because xScal's `modStora
 | `Data\modsdata\r76radio.command.json` | Pip-Boy page or HUD relay | native module | Transport and stream commands |
 | `Data\modsdata\r76radio.diag.json` | Pip-Boy page | native module | Page diagnostics, kept out of the command document |
 | `Data\modsdata\r76radio.relay.json` | HUD relay | Pip-Boy page | Relay presence and build handshake |
+| `Data\modsdata\r76radio.layout.json` | HUD relay | HUD relay | Saved card position (an x and y offset from the notification anchor) and, when set in the editor, `scale` and `opacity` percentages that override the ini |
 | `Data\modsdata\76radio\r76radio.state.json` | native module | Pip-Boy page, HUD relay | Playback state and UI flags |
 | `Data\modsdata\76radio\r76radio.art.png` or `.jpg` | native module | diagnostics only | Original artwork thumbnail |
 | `Data\modsdata\76radio\r76radio.art.pixels` | native module | Pip-Boy page | Base64 RGBA artwork |
@@ -203,6 +204,10 @@ State is a flat JSON object:
   "uiArtStatus": 0,
   "uiArtwork": 1,
   "uiKeepNowPlaying": 0,
+  "uiScale": 100,
+  "uiOpacity": 100,
+  "uiVats": 0,
+  "uiKeys": "CTRL+SHIFT+P|CTRL+SHIFT+N|CTRL+SHIFT+B|CTRL+SHIFT+U",
   "uiTheme": "12FF14"
 }
 ```
@@ -210,6 +215,12 @@ State is a flat JSON object:
 `positionMs` and `capturedMs` are excluded from the signature used to decide whether to rewrite the file, so an unchanged track produces no repeated writes. The document is written to a temporary file, flushed and moved into place. Quotes and backslashes inside metadata are replaced with apostrophes, and control characters become spaces, because the page's flat parser expects that.
 
 `uiTheme` comes from `[Pipboy] fPipboyEffectColorR/G/B` in `Documents\My Games\Fallout 76\Fallout76Prefs.ini`. The channel re-reads the prefs file only when its timestamp changes. The theme is also mirrored to the `r76radio.theme` SharedObject by the HUD relay for the HUD card.
+
+`uiScale` and `uiOpacity` are percentages from `[UI] CardScale` and `CardOpacity`, `uiVats` is `[UI] HideInVats`, and `uiKeys` carries the four `[Hotkeys]` chords in the order play and pause, next, previous and card toggle, separated by `|`. The chords are upper-cased and reduced to letters, digits and `+` when the ini is read.
+
+The HUD relay reads keys and the mouse through xScal's `Input` calls on the movie's `__SFCodeObj` (`Input.RegisterKey`, `IsKeyPressed`, `BeginMouseCapture`, `PollMouse`, `EndMouseCapture`, and the gamepad equivalents). The chord check runs about every 90 ms outside edit mode and every 30 ms while editing. Media hotkeys write the same `{"stamp","command"}` document the Pip-Boy buttons use, with `toggle`, `next` or `previous`. The card toggle is local to the relay. The card position is saved by the relay as `r76radio.layout.json`, an x and y offset from the notification anchor, and read back by the relay only.
+
+An experimental option that is not yet documented for players, `[Radio] ResumeLastStation=1`, makes the channel store the last accepted `stream|` command in `Data\modsdata\76radio\r76radio.last.json` and replays it about 20 seconds after the media service first answers. A stop command, or a station that reaches `FAILED`, removes the file. The channel also keeps `r76radio.health.json` in the same folder, `{"failed":["address",...]}` with at most 64 entries of 512 bytes or less. An address is added when the active stream reaches `FAILED` and removed when it reaches `PLAYING`. The Pip-Boy page reads it with the station list and appends ` [OFFLINE]` to matching names, keeping the original name in `BaseName`.
 
 Diagnostics are prefixed `diag:`. The module ignores them for playback but remembers the last one, so the page can report a state the native side cannot otherwise see. Diagnostics are rate limited on the page.
 

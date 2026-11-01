@@ -45,7 +45,7 @@ package
       private static const PANEL_COLOR:uint = 16777215;
       private static const PANEL_DISABLED_COLOR:uint = 0x555555;
       private static const POLL_INTERVAL:uint = 250;
-      private static const RELAY_BUILD:String = "0.2.0";
+      private static const RELAY_BUILD:String = "0.3.0";
       private static const THEME_STORAGE_NAME:String = "r76radio.theme";
 
       private static const DIAG_STORAGE_NAME:String = "r76radio.diag";
@@ -73,6 +73,15 @@ package
          "../../Data/modsdata/r76radio.relay.json",
          "modsdata/r76radio.relay.json"
       ];
+
+      private static const HEALTH_PATHS:Array = [
+         "../modsdata/76radio/r76radio.health.json",
+         "../Data/modsdata/76radio/r76radio.health.json",
+         "../../Data/modsdata/76radio/r76radio.health.json",
+         "modsdata/76radio/r76radio.health.json"
+      ];
+
+      private static const OFFLINE_SUFFIX:String = " [OFFLINE]";
 
       private static const CUSTOM_STATIONS_PATHS:Array = [
          "../modsdata/76radio/stations.json",
@@ -125,6 +134,11 @@ package
 
       private var m_CustomStations:Array = [];
       private var m_CustomStationsLoading:Boolean = false;
+      private var m_HealthLoader:URLLoader;
+      private var m_HealthLoading:Boolean = false;
+      private var m_HealthAttempt:uint = 0;
+      private var m_HealthDocument:String = "";
+      private var m_FailedUrls:Object = {};
       private var m_CustomStationsAttempt:uint = 0;
       private var m_CustomStationsLoader:URLLoader;
       private var m_CustomStationsDocument:String = "";
@@ -176,6 +190,7 @@ package
       private var m_LabelEmbed:Boolean = false;
       private var m_Labels:Array = [];
       private var m_PanelVisible:Boolean = true;
+      private var m_EmptyTicks:uint = 0;
       private var m_ThemeTicks:uint = 0;
       private var m_ThemePublished:String = "";
       private var m_ThemeDocument:String = "";
@@ -240,6 +255,7 @@ package
          this.addEventListener(MouseEvent.CLICK,this.onPageClick);
          this.createSpotifyPanel();
          this.loadCustomStations();
+         this.loadHealth();
          this.m_SessionToken = new Date().getTime().toString(16);
          m_EventPrefix = "RADIO::";
       }
@@ -291,6 +307,73 @@ package
          {
             this.processProvider(PageData);
             this.restoreStationSelection(selectedUrl,selectedName);
+         }
+      }
+
+      private function loadHealth() : void
+      {
+         if(this.m_HealthLoading) return;
+         if(this.m_HealthAttempt >= HEALTH_PATHS.length)
+         {
+            this.m_HealthAttempt = 0;
+            return;
+         }
+         this.m_HealthLoading = true;
+         this.m_HealthLoader = new URLLoader();
+         this.m_HealthLoader.addEventListener(Event.COMPLETE, this.onHealthLoaded);
+         this.m_HealthLoader.addEventListener(IOErrorEvent.IO_ERROR, this.onHealthError);
+         this.m_HealthLoader.addEventListener(SecurityErrorEvent.SECURITY_ERROR, this.onHealthError);
+         try { this.m_HealthLoader.load(new URLRequest(HEALTH_PATHS[this.m_HealthAttempt])); }
+         catch(e:Error) { this.onHealthError(new IOErrorEvent(IOErrorEvent.IO_ERROR)); }
+      }
+
+      private function onHealthLoaded(param1:Event) : void
+      {
+         this.m_HealthLoading = false;
+         var document:String = "";
+         try { document = String(this.m_HealthLoader.data); } catch(e:Error) { document = ""; }
+         if(document == this.m_HealthDocument) return;
+         this.m_HealthDocument = document;
+         var failed:Object = {};
+         var listStart:int = document.indexOf("[");
+         var cursor:int = listStart < 0 ? document.length : listStart + 1;
+         while(cursor < document.length)
+         {
+            var open:int = document.indexOf("\"", cursor);
+            if(open < 0) break;
+            var close:int = document.indexOf("\"", open + 1);
+            if(close < 0) break;
+            failed[document.substring(open + 1, close)] = true;
+            cursor = close + 1;
+         }
+         this.m_FailedUrls = failed;
+         if(PageData == null || this.List_mc == null || this.List_mc.entryList == null) return;
+         var selectedUrl:String = "";
+         var selectedName:String = "";
+         if(this.List_mc.selectedEntry != null)
+         {
+            if(this.List_mc.selectedEntry.CustomUrl != null) selectedUrl = String(this.List_mc.selectedEntry.CustomUrl);
+            selectedName = String(this.List_mc.selectedEntry.StationName);
+         }
+         this.processProvider(PageData);
+         this.restoreStationSelection(selectedUrl,selectedName);
+      }
+
+      private function onHealthError(param1:Event) : void
+      {
+         this.m_HealthLoading = false;
+         this.m_HealthAttempt++;
+         this.loadHealth();
+      }
+
+      private function markStationHealth() : void
+      {
+         for(var i:int = 0; i < this.m_CustomStations.length; i++)
+         {
+            var station:Object = this.m_CustomStations[i];
+            var baseName:String = station.BaseName != null ? String(station.BaseName) : String(station.StationName);
+            station.BaseName = baseName;
+            station.StationName = this.m_FailedUrls[String(station.CustomUrl)] === true ? baseName + OFFLINE_SUFFIX : baseName;
          }
       }
 
@@ -494,6 +577,7 @@ package
          if(this.m_SpotifyEntry == null) this.m_SpotifyEntry = this.createSpotifyEntry();
          if(this.m_WindowsMediaEntry == null) this.m_WindowsMediaEntry = this.createWindowsMediaEntry();
 
+         this.markStationHealth();
          var custom:Array = [];
          for(var i:int = 0; i < this.m_CustomStations.length; i++)
          {
@@ -688,14 +772,32 @@ package
          if(this.RadioWave_mc != null) this.RadioWave_mc.Animate();
       }
 
+      private function healEmptyList() : void
+      {
+         if(this.stage == null || this.List_mc == null || PageData == null) return;
+         var entries:Object = this.List_mc.entryList;
+         if(entries != null && entries.length > 0)
+         {
+            this.m_EmptyTicks = 0;
+            return;
+         }
+         this.m_EmptyTicks++;
+         if(this.m_EmptyTicks < 3 || this.m_EmptyTicks > 12) return;
+         this.sendDiagnostic("list empty on screen, rebuilding (attempt " + (this.m_EmptyTicks - 2) + ")");
+         try { this.processProvider(PageData); }
+         catch(healError:Error) { this.sendDiagnostic("list rebuild failed: " + healError.message); }
+      }
+
       private function onPoll(param1:TimerEvent) : void
       {
          this.safeRefresh();
+         this.healEmptyList();
          this.m_CustomStationsReloadTicks++;
          if(this.m_CustomStationsReloadTicks >= 10)
          {
             this.m_CustomStationsReloadTicks = 0;
             this.loadCustomStations();
+            this.loadHealth();
          }
          this.m_ThemeTicks++;
          if(this.m_ThemeTicks % 8 == 0) this.publishPipboyTheme();

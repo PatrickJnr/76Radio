@@ -201,7 +201,7 @@ Response Fetch(std::string_view url, ResolveCancellation* cancellation) {
         path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
     }
     WinHttpHandle session{WinHttpOpen(
-        L"76Radio/0.2.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        L"76Radio/0.3.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0)};
     if (!session) {
         return response;

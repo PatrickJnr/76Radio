@@ -126,8 +126,10 @@ Ini edits
    Chinese), SeventySix - Interface_zhhant.ba2 (Traditional Chinese) or
    SeventySix - Interface_ru.ba2 (Russian). They ship with the game, not this package,
    and most players need none of them.
-4. Optional: edit Data\XSCAL\76Radio\76Radio.ini for logging, polling and UI options.
-   Without changes the module uses its defaults, and an update should not overwrite it.
+4. Optional: edit Data\XSCAL\76Radio\76Radio.ini for the card, hotkeys, polling
+   and logging. Without changes the module uses its defaults. If you update from
+   an older version and want the new options, replace your copy with the one in this
+   package, then re-apply any value you changed.
 5. Edit Data\modsdata\76radio\stations.json to add, change or remove stations. Keep an
    existing list when updating. The game picks up changes while it is running.
 
@@ -139,8 +141,8 @@ Uninstall
 3. Remove 76Radio.ba2 from sResourceArchive2List and the 76RadioHud line from
    Data\hudmodloader.ini.
 4. Optionally delete Data\XSCAL\76Radio and Data\modsdata\76radio (settings, stations,
-   state and artwork), plus Data\modsdata\r76radio.command.json, r76radio.diag.json and
-   r76radio.relay.json.
+   state, artwork and offline marks), plus Data\modsdata\r76radio.command.json,
+   r76radio.diag.json, r76radio.relay.json and r76radio.layout.json (the card position).
 
 About the plugin
 xScal loads Data\XSCAL\Plugins\76Radio.dll into the game process. It reads
@@ -153,12 +155,24 @@ DLL when 76Radio.dll.sig matches it, so the two files must be installed together
 replaced together.
 
 Settings
-Data\XSCAL\76Radio\76Radio.ini is read once at start up. Set Enabled=0 under [Logging]
-to stop 76Radio writing its log at all; MaxKb sets the size at which the log rotates.
-The log is also cleared on every launch. [Media] StartupDelayMs is how long the module
-waits before its first Windows media request, and PollIntervalMs is how often it reads
-Spotify; [Channel] PollIntervalMs is how often it checks for a Pip-Boy command. Delete
-a line or the file to get its default back. Edits are never overwritten by an update.
+Data\XSCAL\76Radio\76Radio.ini is read once at start up, and every line has a comment
+saying what it does. [UI] sets the now-playing card: KeepNowPlaying, CardScale (50 to
+200), CardOpacity (20 to 100), HideInVats and ShowArtwork. [Hotkeys] sets the in game
+shortcuts, and an empty value turns one off. [Media] and [Channel] set polling, and [Logging]
+turns the log off or sets the size at which it rotates. Delete a line or the file to get
+its default back. Copying the packaged 76Radio.ini over yours resets your values, so
+keep a copy of any edits first.
+
+In game controls
+These need HUDModLoader and the 76RadioHud line in hudmodloader.ini, and work with the
+Pip-Boy closed. CTRL+SHIFT+P plays or pauses, CTRL+SHIFT+N skips to the next track,
+CTRL+SHIFT+B goes back, and CTRL+SHIFT+U shows or hides the card. To move the card, press
+CTRL+SHIFT+L, drag it with the mouse, turn the wheel for size, SHIFT and the wheel for
+opacity, right click to reset it, and press CTRL+SHIFT+L
+again to save. On a controller, press the left bumper, right bumper and Y together, move
+the card with the right stick, and press the same buttons to finish. The position is kept
+in Data\modsdata\r76radio.layout.json. These controls use xScal input calls; without
+them the card stays where the game's notifications are and the hotkeys do nothing.
 
 What works
 The Spotify Radio entry appears in the RADIO tab with the game's own stations, can be
@@ -171,7 +185,8 @@ Stations listed in stations.json appear beside it and play as internet streams. 
 streams and M3U, M3U8, PLS and HLS addresses are supported. The panel reports connecting,
 buffering, playing, reconnecting, failed and unsupported states as they happen, reconnects
 after a dropped stream, shows song titles when the station sends them, and follows the
-game's Pip-Boy Radio volume. Selecting a slow or dead station does not freeze the Pip-Boy.
+game's Pip-Boy Radio volume. Selecting a slow or dead station does not freeze the Pip-Boy,
+and a station that failed is marked [OFFLINE] in the list until it plays again.
 
 When another application, such as a browser, has a media session, an entry named after it,
 for example Chrome [BETA], appears below Spotify Radio. Selecting it controls that
